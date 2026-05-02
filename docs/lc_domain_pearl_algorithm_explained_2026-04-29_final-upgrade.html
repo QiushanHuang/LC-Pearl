@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LC Domain / Pearl Pipeline 最终升级版算法说明</title>
+  <style>
+    :root {
+      --paper: #fbf6e8;
+      --ink: #223027;
+      --muted: #69746c;
+      --green: #215b45;
+      --blue: #294f73;
+      --amber: #9a6428;
+      --red: #8a3f2b;
+      --line: #d9ceb8;
+      --soft: #f3ead8;
+      --card: rgba(255,255,255,0.66);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% 0%, rgba(33,91,69,0.14), transparent 28rem),
+        radial-gradient(circle at 92% 10%, rgba(154,100,40,0.14), transparent 28rem),
+        linear-gradient(180deg, #fbf6e8, #efe3cd);
+      font-family: "Avenir Next", "PingFang SC", "Hiragino Sans GB", sans-serif;
+      line-height: 1.68;
+    }
+    main { width: min(1180px, calc(100% - 36px)); margin: 32px auto 54px; background: rgba(251,246,232,0.95); border: 1px solid var(--line); border-radius: 28px; overflow: hidden; box-shadow: 0 24px 70px rgba(60,45,25,0.13); }
+    header { padding: 42px 48px 28px; border-bottom: 1px solid var(--line); background: linear-gradient(135deg, rgba(33,91,69,0.14), rgba(154,100,40,0.08)); }
+    .content { padding: 24px 48px 48px; }
+    h1 { margin: 0 0 10px; font-size: clamp(30px, 4vw, 52px); line-height: 1.08; letter-spacing: -0.04em; }
+    h2 { margin: 34px 0 14px; font-size: 25px; color: var(--green); }
+    h3 { margin: 22px 0 9px; font-size: 18px; color: var(--blue); }
+    p { margin: 9px 0; }
+    code { padding: 0.12rem 0.34rem; border-radius: 6px; background: rgba(33,91,69,0.10); color: #173b2d; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 0.93em; }
+    table { width: 100%; border-collapse: collapse; margin: 14px 0 24px; border: 1px solid var(--line); background: var(--card); border-radius: 16px; overflow: hidden; }
+    th, td { padding: 11px 13px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: rgba(33,91,69,0.13); color: #173b2d; }
+    .lead { font-size: 18px; max-width: 980px; color: #3d4a40; }
+    .tagbar { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 18px; }
+    .tag { padding: 7px 11px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,0.72); font-size: 13px; color: #425146; }
+    .note, .warn, .ok { padding: 14px 16px; border-radius: 14px; margin: 16px 0; background: rgba(255,255,255,0.60); }
+    .note { border-left: 5px solid var(--amber); }
+    .warn { border-left: 5px solid var(--red); }
+    .ok { border-left: 5px solid var(--green); }
+    .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; align-items: stretch; margin: 18px 0 26px; }
+    .flow div { padding: 13px 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--card); min-height: 92px; position: relative; }
+    .flow div:not(:last-child)::after { content: "→"; position: absolute; right: -18px; top: 34px; color: var(--amber); font-size: 22px; z-index: 2; }
+    .flow b { display: block; color: var(--green); margin-bottom: 4px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .card { padding: 16px 17px; border: 1px solid var(--line); border-radius: 18px; background: var(--card); }
+    @media (max-width: 900px) { main { width: calc(100% - 18px); } header, .content { padding-left: 22px; padding-right: 22px; } .flow, .grid { grid-template-columns: 1fr; } .flow div::after { display: none; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>LC Domain / Pearl Pipeline 最终升级版算法说明</h1>
+    <p class="lead">版本：2026-04-29 final-upgrade。旧版 HTML 保留为历史讨论记录；本文是当前代码状态的说明，重点解释 domain、pearl、GB 阈值、抽样审计和 LAMMPS run 0 验证之间的关系。</p>
+    <div class="tagbar">
+      <span class="tag">type 1 ellipsoid 为聚集成员</span>
+      <span class="tag">GB energy contact</span>
+      <span class="tag">2D joint calibration 默认启用</span>
+      <span class="tag">event-aware 可用但禁止自动 apply</span>
+      <span class="tag">pearl 参数 recommend-only</span>
+    </div>
+  </header>
+  <section class="content">
+    <h2>一、总体目标</h2>
+    <p>这套代码不是简单数“距离 cluster”。它要回答三件事：液晶 mesogen 之间是否有真实吸引接触；这些接触是否形成局部取向一致的 domain；多个 domain 在 3D 空间中是否组成一个 bead-like pearl，并进一步统计拉伸下 pearl-necklace 的演化。</p>
+
+    <div class="flow">
+      <div><b>1. Dump 输入</b>读取 LAMMPS dump，只把 type 1 ellipsoid 当作 mesogen 成员；type 2/3 用于链序和端点辅助。</div>
+      <div><b>2. Pair Audit</b>计算每对 mesogen 的 GB energy、<code>gb_strength</code>、<code>p2_score</code>、<code>delta_s</code>，输出候选 pair 表。</div>
+      <div><b>3. Threshold Calibration</b>用 2D joint gate 在 <code>GB strength × P2</code> 空间推荐 <code>gb_on/off</code> 与 <code>p2_cut</code>。</div>
+      <div><b>4. Domain / Pearl</b>先构造 local/robust domain，再把 robust domains 按 3D bead 规则合并为 pearl。</div>
+      <div><b>5. Diagnostics</b>输出 labeled dump、sampling manifests、diagnostic TSV/JSON、plot，用 OVITO 和统计图共同审查。</div>
+    </div>
+
+    <h2>二、核心对象</h2>
+    <table>
+      <tr><th>对象</th><th>定义</th><th>为什么需要</th></tr>
+      <tr><td><code>mesogen</code></td><td>type 1 ellipsoid，一个液晶刚性椭球中心，带四元数取向。</td><td>所有聚集判断的基本粒子。</td></tr>
+      <tr><td><code>domain</code></td><td>由 mesogen pair contact 连接出的局部取向束。可以是 weak local，也可以是 robust。</td><td>回答“哪些液晶在局部形成束化结构”。</td></tr>
+      <tr><td><code>weak local domain</code></td><td>主要由相邻或局部链段接触支持，保留但默认不当作强聚集证据。</td><td>避免丢掉相邻液晶真实吸引，同时不让链连接天然把全链串成一个大 cluster。</td></tr>
+      <tr><td><code>robust domain</code></td><td>满足尺寸、取向、非局域支持、持续性或参数稳健性等条件的 domain。</td><td>作为 pearl 合并和力学关联的更可靠结构单元。</td></tr>
+      <tr><td><code>pearl</code></td><td>一个或多个 robust domain 在 3D 空间中形成的 bead-like 致密团块。</td><td>回答“几个中等 cluster 挤在一起时，到底是不是同一个空间珠子”。</td></tr>
+    </table>
+
+    <h2>三、pair contact 的数值</h2>
+    <p>每对 mesogen 计算三个主量：</p>
+    <table>
+      <tr><th>量</th><th>公式 / 来源</th><th>解释</th></tr>
+      <tr><td><code>U_GB</code></td><td>由 Python 按 LAMMPS Gay-Berne 参数和源码审查后的公式重算。</td><td>负值表示吸引。最终精确性依赖 <code>lc_lammps_run0_validate.py</code> 的 run 0 校验。</td></tr>
+      <tr><td><code>gb_strength</code></td><td><code>max(0, -U_GB / U_well)</code></td><td>把不同取向/距离下的吸引能归一化成 0 到约 1 的强度；越大代表越接近该 pair 几何下的吸引井。</td></tr>
+      <tr><td><code>p2_score</code></td><td><code>(3|u_i·u_j|^2 - 1) / 2</code></td><td>无头向液晶常用二阶取向序参量。平行/反平行接近 1，随机附近约 0，垂直接近 -0.5。</td></tr>
+      <tr><td><code>delta_s</code></td><td>两个 mesogen 的链序号差。</td><td>区分相邻链段支持和非局域支持；不再简单排除相邻，而是保留为 local evidence。</td></tr>
+    </table>
+
+    <h2>四、阈值如何选择</h2>
+    <p>当前默认不是手猜 <code>gb_on=0.30</code>、<code>gb_off=0.12</code>。在推荐的 project pipeline 用法中，只要提供 <code>--gb-param-file</code> 且 <code>--auto-thresholds recommend</code> 保持默认，pipeline 会额外运行 <code>gb_pair_audit.py</code> 生成带抽样清单的候选 pair，再用 <code>lc_calibrate_thresholds.py --calibration-mode joint2d</code> 进行 2D joint calibration。若没有提供 GB 参数文件，则只能回退到已筛选的 <code>edge_diagnostics.tsv</code>，这时不会有 GB audit sampling manifest。</p>
+    <table>
+      <tr><th>参数</th><th>当前算法</th><th>自动应用条件</th></tr>
+      <tr><td><code>gb_off_strength</code></td><td>在 <code>GB strength × P2</code> 网格中寻找 gray support 足够、背景仍存在的下阈值。</td><td>必须有足够 candidate pairs、oriented pairs、strong pairs、background pairs 和至少两个独立 frame/block。</td></tr>
+      <tr><td><code>gb_on_strength</code></td><td>同一 2D 网格中寻找 strong support 足够的上阈值。</td><td>如果 strong support 不足，只写推荐，不修改主参数。</td></tr>
+      <tr><td><code>p2_cut</code></td><td>与 GB strength 联合选择，不再只看一维 P2 谷值。</td><td>如果 event-aware 样本参与校准，自动 apply 会被禁止。</td></tr>
+      <tr><td><code>robust_min_s2</code></td><td>有 domain diagnostics 时由 domain 内部取向 S2 的分布推荐。</td><td>样本不足时保留当前值。</td></tr>
+    </table>
+
+    <div class="warn">
+      <b>重要限制：</b>event-aware sampling 是“事件覆盖增强”，不是严格无偏随机样本。它适合发现拉伸突变、cluster split/merge、near-threshold 情况，但默认不能自动改写 <code>gb_on/off</code> 或 <code>p2_cut</code>；代码会把 <code>apply_allowed=false</code>。
+    </div>
+
+    <h2>五、抽样必须可审计</h2>
+    <p>当前代码对所有 sampling 都输出“抽了多少、具体抽了哪些、抽样率”。这是后续判断可靠性的基础。</p>
+    <table>
+      <tr><th>抽样环节</th><th>输出文件</th><th>关键字段</th></tr>
+      <tr><td>frame sampling / event-aware</td><td><code>frame_selection_manifest.tsv</code></td><td><code>candidate_frame_count</code>、<code>selected_frame_count</code>、<code>frame_sampling_rate_among_processed_frames</code>、<code>frame_index</code>、<code>timestep</code>、<code>frame_sampling_reason</code>、<code>frame_event_score</code>。</td></tr>
+      <tr><td>pair sampling for calibration</td><td><code>pair_sampling_manifest.tsv</code></td><td><code>atom_i</code>、<code>atom_j</code>、<code>sampling_strata</code>、<code>candidate_pairs_in_stratum</code>、<code>selected_pairs_in_stratum</code>、<code>pair_sampling_rate</code>。</td></tr>
+      <tr><td>pair sampling summary</td><td><code>pair_sampling_audit.tsv</code></td><td>每个 stratum 的估计候选数、被抽中数、抽样率、权重范围、选择原因。</td></tr>
+      <tr><td>input provenance</td><td><code>sampling_manifest.json</code></td><td>输入 dump、GB 参数文件、脚本 sha256、frame/pair strategy、抽样数量配置。</td></tr>
+      <tr><td>LAMMPS microstate validation</td><td><code>microstate_summary.json</code> 和 <code>microstate_pair_checks.tsv</code></td><td><code>candidate_pair_count</code>、<code>selected_pair_count</code>、<code>actual_sampling_rate</code>、每个被抽中的 <code>atom_i/atom_j</code>、candidate index、LAMMPS/Python energy 差。</td></tr>
+    </table>
+
+    <h2>六、domain 到 pearl</h2>
+    <p>domain 和 pearl 不是重复概念。domain 是 pair-contact 图上的局部 mesogen 束；pearl 是多个 robust domain 在 3D 空间上是否构成同一个珠状团块。</p>
+    <table>
+      <tr><th>判据</th><th>作用</th><th>当前状态</th></tr>
+      <tr><td><code>pearl_gap_cut</code></td><td>两个 domain 的 3D 包络/粒子间最小间隙是否足够小。</td><td>可自动推荐，但 recommend-only，不自动 apply。</td></tr>
+      <tr><td><code>pearl_min_cross_contacts</code></td><td>跨 domain 的接触对数量是否足够，避免单根桥接边误合并。</td><td>由 accepted candidate 的下分位数推荐。</td></tr>
+      <tr><td><code>pearl_min_boundary_particles</code></td><td>两侧是否都有边界粒子支持接触。</td><td>用于避免“一个粒子碰一下就合并”。</td></tr>
+      <tr><td><code>pearl_max_aspect_ratio</code></td><td>合并后是否仍像 bead，而不是细长 connector。</td><td>aspect ratio 过大说明更像被拉出的丝，不应合成 pearl。</td></tr>
+    </table>
+
+    <h2>七、主要输出怎么看</h2>
+    <div class="grid">
+      <div class="card"><h3>OVITO</h3><p>加载 labeled dump 看 <code>lc_state</code>、<code>lc_domain</code>、<code>lc_pearl</code>。domain 颜色用于看局部束，pearl 颜色用于看空间珠子。halo/edge/mesh 类文件如果 OVITO Basic 不能 Add to scene，可以单独打开或改用 dump 内 label 先审查。</p></div>
+      <div class="card"><h3>统计图</h3><p>看 diagnostics 中的阈值分布、domain size vs S2、GB strength vs P2、pearl candidate diagnostics。点太密时优先看 bin summary、joint2d_grid 和抽样 manifest，而不是肉眼看散点。</p></div>
+      <div class="card"><h3>可靠性</h3><p>先看 potential 是否 validated，再看 calibration 的 <code>apply_allowed</code>、warnings、sample_sizes、bootstrap CI、joint_2d status。event-aware 参与时不要把推荐值当自动参数。</p></div>
+      <div class="card"><h3>力学关联</h3><p>最终用 <code>N_domain(t)</code>、<code>N_pearl(t)</code>、largest fraction、ambiguous fraction、<code>L_parallel</code>、<code>Rg_parallel/perp</code> 等面板解释拉伸竞争。</p></div>
+    </div>
+
+    <h2>八、当前仍不应夸大的地方</h2>
+    <div class="note">
+      <p><b>GB 精确还原：</b>Python GB 重算已经按源码审查修正，但“精确还原 LAMMPS potential”只能在 <code>lc_lammps_run0_validate.py</code> 的 whole-frame run 0 和 sampled two-particle microstates 通过后，对同一 potential/fingerprint 成立。换 potential、pair style、shape 参数、special_bonds/topology 处理方式后需要重验。</p>
+      <p><b>Pearl 参数：</b>当前输出自动推荐值和候选表，但不自动应用。原因是 pearl 是更高层结构概念，最好先用 OVITO 和候选表确认误 split/merge 后再固定参数。</p>
+      <p><b>Topology：</b>拓扑不是为了研究 bond，而是为了知道哪些 pair 是相邻/局部链段、哪些 pair 可能被 LAMMPS special_bonds 排除，从而避免把链连接本身误解释成非局域聚集。</p>
+    </div>
+  </section>
+</main>
+</body>
+</html>

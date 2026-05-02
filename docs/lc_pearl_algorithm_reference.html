@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LC-Pearl v1.0.0 算法与参数参考</title>
+  <style>
+    :root {
+      --paper:#f7f1e5; --ink:#1f2b24; --muted:#536158; --green:#1f6b4b;
+      --blue:#275779; --amber:#9b6425; --red:#8c3d2c; --line:#d8cbb5;
+      --card:#fffaf0; --code:#17231d;
+    }
+    * { box-sizing:border-box; }
+    body {
+      margin:0; color:var(--ink);
+      background:linear-gradient(180deg, #fbf7ed 0%, #efe3cf 100%);
+      font-family: ui-serif, Georgia, "Times New Roman", "Songti SC", serif;
+      line-height:1.64;
+    }
+    main { width:min(1180px, calc(100% - 36px)); margin:0 auto; padding:42px 0 72px; }
+    header, section { border:1px solid var(--line); border-radius:24px; background:rgba(255,250,240,.76); padding:26px; margin:18px 0; }
+    h1 { margin:0 0 10px; font-size:clamp(2rem, 4vw, 3.7rem); color:var(--green); line-height:1.05; }
+    h2 { margin:0 0 14px; color:var(--green); font-size:1.55rem; }
+    h3 { color:var(--blue); margin:22px 0 8px; }
+    code, pre {
+      font-family:"SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      background:var(--code); color:#f3ead5; border-radius:10px;
+    }
+    code { padding:.12rem .35rem; }
+    pre { padding:14px 16px; overflow:auto; }
+    table { width:100%; border-collapse:collapse; margin:14px 0; background:#fffaf0; }
+    th, td { border:1px solid var(--line); padding:9px 10px; vertical-align:top; }
+    th { background:#eadcc2; text-align:left; }
+    .lead { max-width:90ch; font-size:1.08rem; }
+    .flow { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:14px 0; }
+    .box { padding:10px 12px; min-width:140px; text-align:center; border:1px solid var(--line); background:#fffaf0; border-radius:14px; }
+    .arrow { color:var(--amber); font-weight:bold; }
+    .note { border-left:5px solid var(--blue); padding:10px 14px; background:#edf4f7; border-radius:12px; }
+    .warn { border-left:5px solid var(--amber); padding:10px 14px; background:#fff4d9; border-radius:12px; }
+    ul { padding-left:1.2rem; }
+    li { margin:.35rem 0; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>LC-Pearl v1.0.0 算法与参数参考</h1>
+    <p class="lead">
+      本文给出 LC-Pearl 当前发行版的正式算法定义。核心思想是把“液晶聚集”拆成三个互不混淆的层级：
+      pair contact、mesogen domain、3D pearl。这样既保留相邻液晶的局部束化，又避免把链连接诱导的近邻
+      误判为真正的 robust aggregation。
+    </p>
+  </header>
+
+  <section>
+    <h2>1. 分析对象</h2>
+    <p>每帧从 LAMMPS dump 中读取粒子 id、type、unwrapped position、quaternion、shape axes、box 和可选力学列。默认设置为：</p>
+    <ul>
+      <li><code>mesogen_type = 1</code>：type 1 ellipsoid 是聚集成员。</li>
+      <li><code>anchor_types = 3</code>：anchor 用于端点和拉伸方向，不进入聚集成员。</li>
+      <li><code>type 2</code> sphere 可参与拓扑或链序重建，但不作为 domain/pearl 成员。</li>
+    </ul>
+    <p>每个 mesogen 的长轴方向 <code>u_i</code> 由 quaternion 旋转 body-frame axis 得到，pair orientation 使用 head-tail 对称量 <code>|u_i dot u_j|</code>。</p>
+  </section>
+
+  <section>
+    <h2>2. Pipeline 总流程</h2>
+    <div class="flow">
+      <div class="box">LAMMPS dump</div><span class="arrow">→</span>
+      <div class="box">GB potential validation</div><span class="arrow">→</span>
+      <div class="box">2D lobe threshold prior</div><span class="arrow">→</span>
+      <div class="box">contact graph</div><span class="arrow">→</span>
+      <div class="box">weak/robust domains</div><span class="arrow">→</span>
+      <div class="box">3D pearls</div><span class="arrow">→</span>
+      <div class="box">mechanics correlation</div>
+    </div>
+    <p>关键设计是：阈值必须在主分析前由全量 candidate pair distribution 得到，而不是先用经验阈值跑完后再做 post-run audit。</p>
+  </section>
+
+  <section>
+    <h2>3. Gay-Berne pair energy 与 normalized attraction</h2>
+    <p>在 <code>contact_mode = "gayberne"</code> 下，LC-Pearl 用 LAMMPS input 中的 Gay-Berne 参数重算 type 1-1 ellipsoid pair energy。每个候选 pair 得到：</p>
+    <pre><code>U_GB,ij
+U_well,ij
+gb_strength_ij = max(0, -U_GB,ij / U_well,ij)</code></pre>
+    <p><code>gb_strength</code> 是无量纲吸引强度。它把不同取向导致的 well depth 归一化，使“强吸引”不只取决于绝对能量，也考虑该取向下的可达势阱深度。</p>
+    <p class="note">GB 重算依赖 dump 中的 position、quaternion、shape axes，以及 input 中的 pair parameters。若 potential 设置改变，必须重新验证并重建 threshold prior。</p>
+  </section>
+
+  <section>
+    <h2>4. Pair orientation score</h2>
+    <p>LC-Pearl 使用二阶 Legendre order score：</p>
+    <pre><code>q_ij = |u_i dot u_j|
+P2_ij = (3 q_ij^2 - 1) / 2</code></pre>
+    <p>使用绝对点积是因为 Gay-Berne ellipsoid 长轴无头尾方向。<code>P2 = 1</code> 表示平行或反平行，<code>P2 = -0.5</code> 表示垂直。</p>
+  </section>
+
+  <section>
+    <h2>5. 2D lobe threshold prior</h2>
+    <p>阈值先验从全量 candidate pairs 的 <code>gb_strength x P2</code> 二维直方图中生成。它不依赖已筛选的 edge table，也不依赖 post-run candidate-pair TSV。</p>
+    <h3>5.1 输入分布</h3>
+    <p>对每个候选 E-E pair，若 <code>gb_strength &gt; 0</code> 且未被 topology exclusion 排除，就将其累积进 2D histogram。默认全量帧采样：<code>global_frame_stride = 1</code>。</p>
+    <h3>5.2 阈值定义</h3>
+    <table>
+      <thead><tr><th>参数</th><th>算法来源</th><th>物理含义</th></tr></thead>
+      <tbody>
+        <tr><td><code>p2_cut</code></td><td>P2 marginal 中低取向背景与高取向 lobe 的 valley，默认最小域 gate 为 0.5</td><td>pair 需要达到的取向一致性</td></tr>
+        <tr><td><code>gb_on_strength</code></td><td>在 <code>P2 >= p2_cut</code> 切片中，弱接触 lobe 与强吸引 lobe 之间的 GB valley</td><td>strong edge 的吸引阈值，是 robust domain 的主要 pair-level 能量门</td></tr>
+        <tr><td><code>gb_off_strength</code></td><td><code>gb_on</code> 左侧 lobe 的保守 shoulder</td><td>gray/support edge 阈值，用于保留弱支持而不是直接造 robust core</td></tr>
+      </tbody>
+    </table>
+    <p>该算法的一个重要约束是：同一张 2D histogram 不应因为旧的 current threshold 不同而产生不同推荐值。current threshold 只记录 provenance，不参与 lobe split。</p>
+    <p class="warn">如果图像没有明显双 lobe，算法仍会给出数值，但应在组会或分析报告中将其标为低结构可分性，而不是强行解释为清晰 pearl transition。</p>
+  </section>
+
+  <section>
+    <h2>6. Contact graph</h2>
+    <p>每帧构造 mesogen pair graph。边分为 strong edge 和 gray/support edge：</p>
+    <pre><code>strong edge: gb_strength >= gb_on_strength and P2 >= p2_cut
+gray edge:   gb_strength >= gb_off_strength and P2 >= p2_cut</code></pre>
+    <p>center-distance 或 ellipsoid-distance 模式保留在代码中用于 exploratory analysis，但 v1.0.0 的推荐学术流程使用 Gay-Berne energy。</p>
+  </section>
+
+  <section>
+    <h2>7. Local support, weak domain, robust domain</h2>
+    <p><code>delta_s</code> 表示两个 mesogen 的链序号差。<code>delta_s <= s_excl</code> 的 pair 被视为 local support。LC-Pearl 不删除相邻液晶聚集，而是避免只靠相邻键连关系无条件制造 robust domain。</p>
+    <table>
+      <thead><tr><th>对象</th><th>定义</th><th>目的</th></tr></thead>
+      <tbody>
+        <tr><td>weak local domain</td><td>局部相邻或弱支持形成的 mesogen 束</td><td>保留相邻液晶的真实局部束化信息</td></tr>
+        <tr><td>robust domain</td><td>满足 size、orientation、persistence、nonlocal support、parameter stability 等证据的 domain</td><td>用于后续 pearl 合并和稳定聚集统计</td></tr>
+      </tbody>
+    </table>
+    <p>典型 robust evidence 包括：</p>
+    <ul>
+      <li><code>size >= n_min</code>，默认 3。</li>
+      <li><code>domain S2 >= robust_min_s2</code>，默认 0.70。</li>
+      <li><code>age >= domain_min_lifetime</code>，默认 2 个处理帧。</li>
+      <li>至少存在非局域 support contact。</li>
+      <li>在更严格参数下仍保留足够重叠的 stable core。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>8. Pearl 定义</h2>
+    <p>pearl 不是一个更大的 domain。domain 回答“局部 mesogen 束是否存在”；pearl 回答“一个或多个 robust domain 是否在 3D 空间中组成同一个 bead-like compact region”。</p>
+    <p>两个 robust domains 合并为同一 pearl 需要满足：</p>
+    <ul>
+      <li><code>min 3D gap <= pearl_gap_cut</code>。</li>
+      <li><code>cross contact count >= pearl_min_cross_contacts</code>。</li>
+      <li>两侧 boundary particles 都有支持，避免单根桥接边造成假合并。</li>
+      <li>合并后的 3D aspect ratio 不超过 <code>pearl_max_aspect_ratio</code>，默认 3.0。</li>
+    </ul>
+    <p>aspect ratio 是空间紧凑性的几何约束。若合并后长轴远大于短轴，结构更像 connector 或 stretched bundle，而不是 bead。</p>
+  </section>
+
+  <section>
+    <h2>9. Mechanics layer</h2>
+    <p>LC-Pearl 同时计算力学相关量，用于将聚集与外力或温度条件联系起来：</p>
+    <table>
+      <thead><tr><th>量</th><th>含义</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>L_parallel</code></td><td>沿拉伸方向的端到端投影长度</td><td>主力学响应量</td></tr>
+        <tr><td><code>Rg_parallel</code></td><td>沿拉伸方向的回转半径分量</td><td>辅助形状量</td></tr>
+        <tr><td><code>Rg_perp</code></td><td>垂直拉伸方向的回转半径分量</td><td>反映横向收缩/团聚</td></tr>
+        <tr><td><code>S2_force</code></td><td>mesogen 长轴相对拉伸方向的取向序</td><td>判断拉伸诱导取向</td></tr>
+      </tbody>
+    </table>
+    <p>若有多个恒力模拟，可比较 <code>Delta &lt;L_parallel&gt; / Delta F</code> 作为等效顺应性指标。<code>Rg</code> 不能替代 <code>L_parallel</code>。</p>
+  </section>
+
+  <section>
+    <h2>10. 参数表</h2>
+    <table>
+      <thead><tr><th>参数</th><th>默认/推荐</th><th>作用</th><th>调参后果</th></tr></thead>
+      <tbody>
+        <tr><td><code>contact_mode</code></td><td><code>gayberne</code></td><td>pair contact 定义</td><td>推荐不改；center 模式只用于快速探索</td></tr>
+        <tr><td><code>gb_on_strength</code></td><td>由 prior 自动给出</td><td>strong edge 能量阈值</td><td>提高会减少 robust domains，降低会合并更多结构</td></tr>
+        <tr><td><code>gb_off_strength</code></td><td>由 prior 自动给出</td><td>gray/support edge 阈值</td><td>影响 weak support 和附着，不应单独解释为 robust cut</td></tr>
+        <tr><td><code>p2_cut</code></td><td>由 prior 自动给出</td><td>pair orientation gate</td><td>提高会要求更平行，降低会允许弯折 contact</td></tr>
+        <tr><td><code>s_excl</code></td><td>1</td><td>链上局部 support 范围</td><td>增大会更严格地区分 local/nonlocal</td></tr>
+        <tr><td><code>n_min</code></td><td>3</td><td>robust domain 尺寸证据</td><td>提高会排除小束，降低会保留二聚体</td></tr>
+        <tr><td><code>robust_min_s2</code></td><td>0.70</td><td>domain 内部取向一致性</td><td>提高会强调更平行的束</td></tr>
+        <tr><td><code>domain_min_lifetime</code></td><td>2</td><td>persistence evidence</td><td>提高会过滤瞬态热噪声</td></tr>
+        <tr><td><code>pearl_gap_cut</code></td><td>auto</td><td>domain-domain 3D merge gap</td><td>增大会更容易把相邻 domains 合成 pearl</td></tr>
+        <tr><td><code>pearl_min_cross_contacts</code></td><td>2</td><td>跨域接触数</td><td>提高会减少单桥接误合并</td></tr>
+        <tr><td><code>pearl_max_aspect_ratio</code></td><td>3.0</td><td>bead-like 紧凑性约束</td><td>降低会更严格地区分 pearl 和 stretched connector</td></tr>
+        <tr><td><code>edge_diagnostics_table</code></td><td>off</td><td>是否写 full/sampled edge table</td><td>sample/full 仅用于 debug，可能很大</td></tr>
+        <tr><td><code>write_frame_jsonl</code></td><td>false</td><td>是否写完整 per-frame JSONL</td><td>开启后方便 debug，但可能产生多 GB 文件</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>11. 精度边界</h2>
+    <p>LC-Pearl 的精度由三部分决定：</p>
+    <ul>
+      <li>GB potential 重算是否通过 LAMMPS run 0 / microstate validation。</li>
+      <li>threshold prior 的 2D lobe 是否在全局 candidate-pair 分布中清晰可分。</li>
+      <li>topology/local/exclude pair 是否正确反映本体系的 chain connectivity 和 special-bonds 语义。</li>
+    </ul>
+    <p>如果缺少 topology data，LC-Pearl 仍可运行，但 local/nonlocal 支持会更多依赖链序推断和 id gap。对于论文级结果，建议提供可靠 LAMMPS data 文件。</p>
+  </section>
+
+  <section>
+    <h2>12. 结果解释原则</h2>
+    <ul>
+      <li>不要把 <code>lc_cluster</code> 当作最终物理 domain；它是 OVITO 直观聚集辅助。</li>
+      <li>不要把 pearl 当作大 domain；pearl 是 3D bead-level object。</li>
+      <li>不要只报告 <code>N_pearl</code>；同时报告 largest pearl fraction、domains per pearl、local/nonlocal edge fraction 和 mechanics。</li>
+      <li>不要用 post-run accepted-edge diagnostics 重新选阈值；阈值来自 pre-main-analysis full 2D streaming prior。</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>

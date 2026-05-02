@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LC Domain-Pearl V2 算法与参数说明</title>
+  <style>
+    :root { --paper:#f7f1e5; --ink:#1f2b24; --muted:#526158; --green:#1f6b4b; --blue:#275779; --amber:#9b6425; --red:#8c3d2c; --line:#d8cbb5; --card:#fffaf0; --code:#17231d; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:radial-gradient(circle at 8% 0%,rgba(31,107,75,.17),transparent 28rem),radial-gradient(circle at 90% 4%,rgba(39,87,121,.13),transparent 32rem),linear-gradient(180deg,#f7f1e5,#eadbc3); color:var(--ink); font-family:"Avenir Next","PingFang SC","Hiragino Sans GB",sans-serif; line-height:1.68; }
+    main { width:min(1240px,calc(100% - 34px)); margin:30px auto 58px; background:rgba(247,241,229,.97); border:1px solid var(--line); border-radius:28px; overflow:hidden; box-shadow:0 26px 72px rgba(63,48,28,.15); }
+    header { padding:42px 48px 30px; background:linear-gradient(135deg,rgba(31,107,75,.15),rgba(39,87,121,.10)); border-bottom:1px solid var(--line); }
+    section { padding:24px 48px 52px; }
+    h1 { margin:0 0 10px; font-size:clamp(30px,4vw,52px); line-height:1.08; letter-spacing:-.04em; }
+    h2 { margin:34px 0 13px; color:var(--green); font-size:25px; }
+    h3 { margin:23px 0 8px; color:var(--blue); font-size:18px; }
+    p { margin:9px 0; }
+    code { padding:.12rem .34rem; border-radius:6px; background:rgba(31,107,75,.10); color:#173b2c; font-family:"SF Mono",Menlo,Consolas,monospace; font-size:.93em; overflow-wrap:anywhere; word-break:break-word; }
+    pre { overflow-x:auto; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; padding:16px 18px; border-radius:16px; background:var(--code); color:#fff6dd; font-size:13px; line-height:1.55; }
+    pre code { display:block; padding:0; background:transparent; color:inherit; white-space:inherit; overflow-wrap:inherit; word-break:inherit; }
+    table { width:100%; table-layout:fixed; border-collapse:collapse; margin:14px 0 24px; background:rgba(255,250,240,.78); border:1px solid var(--line); border-radius:16px; overflow:hidden; }
+    th,td { padding:11px 13px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; overflow-wrap:anywhere; word-break:break-word; }
+    th { background:rgba(31,107,75,.13); color:#173b2c; }
+    .lead { max-width:980px; font-size:18px; color:var(--muted); }
+    .note,.warn,.ok { padding:14px 16px; margin:16px 0; border-radius:14px; background:rgba(255,250,240,.72); }
+    .note { border-left:5px solid var(--amber); } .warn { border-left:5px solid var(--red); } .ok { border-left:5px solid var(--green); }
+    .flow { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; margin:18px 0 26px; }
+    .flow div { min-height:118px; padding:13px 12px; border:1px solid var(--line); border-radius:16px; background:rgba(255,250,240,.76); position:relative; }
+    .flow div:not(:last-child)::after { content:"→"; position:absolute; right:-18px; top:43px; color:var(--amber); font-size:22px; }
+    .flow b { display:block; color:var(--green); margin-bottom:4px; }
+    .tag { display:inline-block; margin:2px 4px 2px 0; padding:2px 8px; border-radius:999px; background:rgba(39,87,121,.11); color:var(--blue); font-size:12px; }
+    @media (max-width:1050px) { header,section{padding-left:22px;padding-right:22px;} main{width:calc(100% - 18px);} .flow{grid-template-columns:1fr;} .flow div::after{display:none;} }
+    @media (max-width:760px) { table,tbody,tr,th,td{display:block;width:100%;} tr{border-bottom:2px solid rgba(31,107,75,.16);} pre{font-size:12px;} }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>LC Domain-Pearl V2 算法与参数说明</h1>
+    <p class="lead">V2 的核心改变是把“阈值推荐先验”拆成独立、可迁移、可缓存的 streaming 模块：先用全局统计或项目级代表统计确定 <code>gb_off/gb_on/p2_cut</code>，再用这些参数正式生成 domain、pearl 和 OVITO label。这样避免 V1 中“先用默认值分析，分析后才推荐阈值”的逻辑错位。</p>
+    <p><span class="tag">名称：LC/Ic Domain Pearl V2</span><span class="tag">日期：2026-04-30</span><span class="tag">主定义：3D bead pearl</span><span class="tag">阈值：pre-analysis prior</span></p>
+  </header>
+  <section>
+    <h2>1. 总流程</h2>
+    <div class="flow">
+      <div><b>Preflight</b>从当前 dump 目录识别原始 LAMMPS input、LAMMPS executable、可选 topology data，并生成标准输入。</div>
+      <div><b>GB 验证</b>用代表帧做 LAMMPS run 0 / microstate pair check，生成 <code>verified_potential.json</code>。</div>
+      <div><b>Threshold Prior</b>独立 streaming 扫描候选 pair 的 <code>GB strength × P2</code> 分布，写 <code>global_thresholds.json</code>。</div>
+      <div><b>Main Analysis</b>先把 prior 推荐值注入正式参数，再计算 contact edge、domain、pearl、mechanics。</div>
+      <div><b>Diagnostics</b>输出 edge/domain/pearl 候选表、图、参数来源和 run summary。</div>
+      <div><b>OVITO</b>输出带 <code>lc_*</code> label 的 dump，用颜色审查聚集体和边界误差。</div>
+    </div>
+    <div class="ok"><b>V2 默认顺序：</b><code>threshold_prior.mode="auto"</code> 时，如果 <code>lc_pearl_preflight/thresholds/global_thresholds.json</code> 存在且 fingerprint 匹配，并且 GB potential 已验证，才会应用；如果不存在，先运行 <code>lc_threshold_prior.py</code> 生成，再按 confidence gate 决定是否应用；然后才跑正式 domain/pearl 分析。</div>
+    <div class="warn"><b>先验不是物理相边界：</b>V2 threshold prior 是对 attractive candidate pairs 的 <code>GB strength × P2</code> 统计分布做 GMM/KDE 与 2D gate 选择，属于数据驱动分析参数，不是新的 potential，也不是相变判据。</div>
+
+    <h2>2. 分析对象</h2>
+    <table>
+      <tr><th>对象</th><th>进入聚集成员吗</th><th>用途</th></tr>
+      <tr><td>type 1 ellipsoid / mesogen</td><td>是</td><td>domain、pearl、cluster、GB energy、orientation 的唯一成员。</td></tr>
+      <tr><td>type 2 sphere</td><td>否</td><td>不作为聚集成员；可辅助解析链结构，具体取决于 dump/topology。</td></tr>
+      <tr><td>type 3 anchor</td><td>否</td><td>不作为聚集成员；用于端到端方向和 <code>L_parallel</code>。</td></tr>
+      <tr><td>topology Bonds / special_bonds</td><td>否</td><td>用于生成 local/exclude pair，避免把 LAMMPS 中被特殊处理的 pair 当成普通非局域聚集证据。</td></tr>
+    </table>
+
+    <h2>3. Pair 级计算</h2>
+    <table>
+      <tr><th>符号</th><th>公式/来源</th><th>含义</th><th>精度边界</th></tr>
+      <tr><td><code>r_i</code></td><td>dump 中 <code>xu,yu,zu</code>，缺失时用 <code>x,y,z</code></td><td>mesogen 中心位置。</td><td>如果 dump 没有 unwrap 坐标，跨周期链会影响空间判断。</td></tr>
+      <tr><td><code>u_i</code></td><td>四元数旋转 body-frame 长轴</td><td>mesogen 长轴方向；比较时液晶无头向。</td><td>依赖 dump quaternion 约定；run0/microstate 验证可间接发现明显问题。</td></tr>
+      <tr><td><code>q_score</code></td><td><code>|u_i · u_j|</code></td><td>0 到 1 的取向一致性，平行和反平行都为 1。</td><td>只表示 pair 取向，不表示吸引。</td></tr>
+      <tr><td><code>p2_score</code></td><td><code>(3*q_score^2 - 1)/2</code></td><td>nematic 二阶序参量 pair 版本；1 平行，约 0 随机，-0.5 垂直。</td><td>适合液晶无头向，比直接角度更稳定。</td></tr>
+      <tr><td><code>U_GB</code></td><td>Python 根据 LAMMPS Gay-Berne 参数重算</td><td>两个 ellipsoid 的 pair potential，负值是吸引。</td><td>必须通过 LAMMPS run 0 / microstate check 才能称为可信重算。</td></tr>
+      <tr><td><code>gb_strength</code></td><td><code>max(0, -U_GB / U_well)</code></td><td>归一化吸引强度，0 表示无吸引，越高表示越接近该几何下吸引井。</td><td>用于跨取向/距离比较；不是新 potential，只是标准化后的统计量。</td></tr>
+      <tr><td><code>delta_s</code></td><td><code>|s_i - s_j|</code> 或 topology/atom id 推断</td><td>mesogen 沿链序号间隔。</td><td>用于区分 local support 与 nonlocal support，不用于删除相邻 mesogen。</td></tr>
+    </table>
+
+    <h2>4. 阈值 prior 如何产生</h2>
+    <p><code>lc_threshold_prior.py</code> 是 V2 独立模块。它不再把所有 pair 写成巨大的 <code>gb_candidate_pairs.tsv</code>，而是流式遍历候选 frames 和候选 pair，把统计量累积到 1D/2D 直方图，同时只保留少量 <code>audit_pair_examples.tsv</code> 供人工抽查。</p>
+    <table>
+      <tr><th>参数</th><th>默认</th><th>含义</th></tr>
+      <tr><td><code>global_frame_stride</code></td><td><code>1</code></td><td>显式全局抽帧步长。<code>1</code> 表示全量候选帧；<code>10</code> 表示按排序后的全局 frame 序列每 10 帧取 1 帧；<code>100</code> 表示每 100 帧取 1 帧。对于“一文件一帧”的 dump 目录，这才是控制每多少个 dump 抽一帧的主要参数。若大于 1，它优先于 <code>global_frame_budget</code>。</td></tr>
+      <tr><td><code>global_frame_budget</code></td><td><code>0</code></td><td>0 表示所有帧都进入 streaming 统计；正数表示在全局 frame 序列上按 seeded stride 抽代表帧。V2 会先统计所有 dump 的真实 frame 数，而不是每个文件各抽 48 帧。具体选中帧写入 <code>selected_frame_manifest.tsv</code>。</td></tr>
+      <tr><td><code>every</code></td><td><code>1</code></td><td>单个 dump 文件内部的帧间隔。若每个 dump 只有一帧，<code>every=10</code> 不会跳过文件；应使用 <code>global_frame_stride=10</code>。</td></tr>
+      <tr><td><code>gb_bins/p2_bins</code></td><td><code>120/120</code></td><td>2D 直方图分辨率。</td></tr>
+      <tr><td><code>gb_strength_max</code></td><td><code>1.5</code></td><td>不是单纯绘图范围，而是 streaming histogram 的 GB strength 上限。超过范围的权重会记录在 <code>out_of_hist_range_pair_fraction</code>；比例过高时不会自动 apply，需增大上限后重建 prior。</td></tr>
+      <tr><td><code>audit_example_pairs</code></td><td><code>5000</code></td><td>只保留这些代表 pair 作为审查样本，不影响直方图全局统计。</td></tr>
+      <tr><td><code>workers</code></td><td><code>auto</code></td><td>多进程按文件并行处理；大目录会显著加速。</td></tr>
+    </table>
+    <pre><code>python3 /Users/joshua/Desktop/MD/LC-Pearl/scripts/lc_threshold_prior.py . \
+  --gb-param-file lc_pearl_preflight/lammps/gb_param_source.in \
+  --output-dir lc_pearl_preflight/thresholds \
+  --global-threshold-file lc_pearl_preflight/thresholds/global_thresholds.json \
+  --anchor-types 3 \
+  --global-frame-stride 1 \
+  --global-frame-budget 0 \
+  --workers auto</code></pre>
+    <div class="note"><b>为什么 2D joint 更重要：</b>聚集 contact 不是“能量强”或“取向好”单独成立，而是两者共同成立。V2 在 <code>GB strength × P2</code> 平面上选择 strong/gray gate，避免把强吸引但取向乱、或取向一致但没有吸引的 pair 误算成聚集。</div>
+    <div class="note"><b>local/nonlocal 语义：</b>当前 V2 prior 默认使用全部未排除 attractive candidate pairs 来估计 pair 阈值，同时输出 local/nonlocal 直方图供审查；它不是 nonlocal-only prior。local edge 不会被删除，但在 domain 阶段只能作为 local support/attach/weak 证据，不能单独代表非局域 pearl 聚集。</div>
+    <div class="note"><b>并行上限：</b>V2 的自动并行统一按 <code>min(可用 CPU 核数, 输入文件数或任务数, 默认上限 10)</code> 解析。主分析/GB audit 受 <code>LC_PEARL_MAX_WORKERS</code> 控制，threshold prior 受 <code>LC_PEARL_MAX_AUTO_WORKERS</code> 控制，bootstrap calibration 受 <code>LC_PEARL_MAX_AUTO_CALIBRATION_WORKERS</code> 控制。</div>
+
+    <h2>5. 阈值选择算法</h2>
+    <table>
+      <tr><th>阈值</th><th>算法来源</th><th>解释</th></tr>
+      <tr><td><code>p2_cut</code></td><td>先对 P2 边际分布做 GMM/KDE valley，再由 2D joint gate 检查支持量。</td><td>区分取向随机/弱一致/强一致。默认 clamp 到 0.50-0.90，避免统计噪声给出不物理的切点。</td></tr>
+      <tr><td><code>gb_off</code></td><td>在通过取向 gate 的 pair 上估计弱吸引与背景边界，再由 2D joint 可行性调整。</td><td>gray edge 下限。太低会把远处弱吸引或噪声连起来；太高会漏掉边界 mesogen。</td></tr>
+      <tr><td><code>gb_on</code></td><td>在取向 pair 上估计强吸引边界，并强制 <code>gb_on &gt; gb_off</code>。</td><td>strong edge 下限。用于 seed domain 的强证据。</td></tr>
+      <tr><td><code>robust_min_s2</code></td><td>当前仍主要由配置/diagnostics 审查，不由 prior 自动覆盖。</td><td>domain 内部取向一致性阈值。它依赖 domain 结果而不是 pair prior，V2 暂不把它和 pair 阈值强行耦合。</td></tr>
+      <tr><td><code>pearl_gap_cut</code> 等 pearl 参数</td><td>recommend-only，由 pearl candidate diagnostics 估计。</td><td>pearl 需要 3D gap、跨域接触、边界支持、aspect ratio 同时审查，目前不自动 apply。</td></tr>
+    </table>
+    <div class="warn"><b>经验参数还存在：</b><code>n_min=3</code>、<code>s_excl=1</code>、<code>pearl_min_cross_contacts=2</code>、<code>pearl_min_boundary_particles=2</code>、<code>pearl_max_aspect_ratio=3.0</code> 仍是物理定义参数，不是 GB potential 能自动推出的常数。V2 做的是把 pair 阈值从经验默认值升级为数据驱动先验，并把其它参数全部显式写进 diagnostics 和文档。</div>
+
+    <h2>6. Domain 与 weak/robust 规则</h2>
+    <p>相邻 mesogen 的聚集必须保留。V2 不把相邻接触删除，而是把它们标为 local support；local support 可以参与 weak local domain，也可以附着到已有 seed。是否升级 robust 要看更强证据，而不是只靠二聚体相邻接触。</p>
+    <table>
+      <tr><th>类别</th><th>规则</th><th>物理含义</th></tr>
+      <tr><td>weak local domain</td><td>局部/相邻接触形成的短束，或证据不足的局部结构。</td><td>保留“相邻液晶确实有吸引”的事实，但不让链连接天然靠近主导 robust 统计。</td></tr>
+      <tr><td>robust domain</td><td>尺寸至少 <code>n_min</code>，内部 <code>S2</code> 达标，证据数达标，并且需要 nonlocal support 或 persistence 之一；参数稳定性主要作为辅助证据。</td><td>可以作为 pearl 组成单元和力学关联对象。</td></tr>
+      <tr><td>ambiguous shell</td><td>参数扰动下归属不稳定的 mesogen。</td><td>提醒当前边界态多，定量结论需要结合 OVITO 和 sensitivity 图审查。</td></tr>
+    </table>
+
+    <h2>7. Pearl 为什么不是大 domain</h2>
+    <p>domain 是接触图中的局部束；pearl 是一个或多个 robust domains 在 3D 空间上形成的 bead-like 致密区。一个 pearl 可以包含多个 domains，因为你肉眼看到的问题正是“几个中等 cluster 挤在一起，到底算一个空间珠子还是多个束”。</p>
+    <table>
+      <tr><th>pearl 合并条件</th><th>字段</th><th>为什么需要</th></tr>
+      <tr><td>3D gap 足够小</td><td><code>pearl_gap_cut</code></td><td>pearl 的身份先由空间珠子决定，而不是只按轴向投影。</td></tr>
+      <tr><td>跨 domain 接触对足够多</td><td><code>pearl_min_cross_contacts</code></td><td>避免一条桥接边把两个分离束误合并。</td></tr>
+      <tr><td>两侧边界支持足够</td><td><code>pearl_min_boundary_particles</code></td><td>要求两个 domains 都有多个边界 mesogen 支持合并。</td></tr>
+      <tr><td>合并后不细长</td><td><code>pearl_max_aspect_ratio</code></td><td>aspect ratio 太大说明更像 connector/被拉伸的丝，而不是 bead。</td></tr>
+      <tr><td>轴向密度</td><td>辅助诊断</td><td>用于描述 pearl-necklace 排列、数量、间距、connector 长度，不作为唯一主定义。</td></tr>
+    </table>
+
+    <h2>8. 主要输出与可靠性判断</h2>
+    <table>
+      <tr><th>文件</th><th>用途</th><th>可靠性检查</th></tr>
+      <tr><td><code>lc_pearl_preflight/thresholds/global_thresholds.json</code></td><td>V2 阈值先验缓存，可迁移到相同 potential/相似体系，但“相似体系”仍需要科研判断。</td><td>在该文件看 <code>calibration_status</code>、<code>apply_allowed</code>、<code>input_provenance</code>、<code>streaming.selected_frame_count_total</code>、<code>out_of_hist_range_pair_fraction</code>；是否真的用于本次主分析要看 <code>run_summary.json</code> 的 <code>threshold_prior.applied</code>。</td></tr>
+      <tr><td><code>stream_hist_2d_gb_p2.tsv</code> / <code>gb_strength_vs_p2_stream_hist.png</code></td><td>阈值先验的核心统计证据。</td><td>图上会标出 <code>gb_off/gb_on/p2_cut</code> 的具体数值；需要确认强区、灰区、背景区不是完全混成一片。</td></tr>
+      <tr><td><code>aggregation_timeseries.tsv</code></td><td>正式定量结果。</td><td>看 <code>N_domain(t)</code>、<code>N_pearl(t)</code>、largest fractions、<code>L_parallel</code> 与 force/temperature 的趋势。</td></tr>
+      <tr><td><code>diagnostics/domain_diagnostics.tsv</code></td><td>domain 级审查。</td><td>看 robust domain 是否确实有足够 size、S2、nonlocal 支持。</td></tr>
+      <tr><td><code>diagnostics/pearl_candidate_diagnostics.tsv</code></td><td>pearl 合并/拒绝原因。</td><td>看被合并的 domains 是否符合 gap、contacts、boundary、aspect ratio。</td></tr>
+      <tr><td><code>per_file/*_lc_labels.dump</code></td><td>OVITO 可视化。</td><td>用 <code>lc_domain</code>、<code>lc_pearl</code>、<code>lc_state</code>、<code>lc_cluster</code> 逐帧肉眼审查。</td></tr>
+    </table>
+  </section>
+</main>
+</body>
+</html>

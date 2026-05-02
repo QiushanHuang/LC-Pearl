@@ -1,0 +1,54 @@
+# LC-Pearl quick pipeline configuration.
+# Edit the paths first, then run:
+#   Source tree: python lc_pearl_cli.py run --config configs/quick_run.toml
+#   Installed:    lc-pearl run --config configs/quick_run.toml
+
+[runtime]
+python = "auto"
+
+[paths]
+workdir = "/Users/joshua/Downloads/ssh-hkust/Result_MD_ball_ellipsoid_line_anchor-changeDOF_0406-mass1over3-l0600-unwrap-length8/Tstar_0.75/rho030"
+input = "."
+pattern = "*.dump"
+output_root = "lc_domain_pearl_v2_output"
+gb_param_file = "/Users/joshua/Desktop/MD/2026_04/0408/02_Youngs_Modulus/stretch-length7-Tstar0.4/in.single_chain_constant_force_aligned_box-F0.26-tail_v0_no_thermal-xuyu-zu.lmp"
+lammps_executable = "/Users/joshua/Desktop/Qiushan_Code/lammmps_git/lammps/build-asphere-mpi/lmp"
+recursive = false
+
+[pipeline]
+potential_validation = "cache"
+
+[threshold_prior]
+mode = "auto"
+file = "lc_pearl_preflight/thresholds/global_thresholds.json"
+output_dir = "lc_pearl_preflight/thresholds"
+every = 1
+# 1 = full global-frame sampling; 10 = sample every 10th global candidate frame; 100 = every 100th.
+# This is the right control for directories where each dump file is one frame.
+global_frame_stride = 1
+global_frame_budget = 0
+block_size_frames = 100
+file_chunk_size = 500
+max_block_histograms = 256
+audit_example_pairs = 5000
+workers = "auto"
+seed = 20260429
+min_pairs = 100
+min_oriented_pairs = 60
+# auto = min(available CPU cores, chunk_count, LC_PEARL_MAX_AUTO_WORKERS). Default cap: 10.
+# chunk_count = ceil(input dump files / file_chunk_size).
+# file_chunk_size keeps directories with many single-frame dump files from creating one worker task per file.
+# max_block_histograms limits diagnostic NPZ size only. Threshold application is based on the full streaming 2D lobe prior.
+
+[analysis]
+contact_mode = "gayberne"
+mesogen_type = 1
+anchor_types = "3"
+axis = "auto"
+workers = "auto"
+every = 1
+n_min = 3
+s_excl = 1
+edge_diagnostics_table = "off"
+edge_diagnostics_sample_size = 200000
+write_frame_jsonl = false

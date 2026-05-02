@@ -1,0 +1,32 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+*.so
+.Python
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+
+# LC-Pearl runtime outputs
+lc_domain_pearl_v*_output/
+lc_domain_pearl_v1_output/
+lc_domain_pearl_v2_output/
+lc_pearl_preflight/validation/run0_validation/
+lc_pearl_preflight/thresholds/_threshold_prior_chunks/
+gb_pair_audit*/
+potential_validation/
+
+# Large simulation files should stay outside the source repository
+*.dump
+*.lammpstrj
+*.dcd
+*.xtc
+*.trr
+*.vtk
+*.npz
+
+# Local editor state
+.idea/
+.vscode/

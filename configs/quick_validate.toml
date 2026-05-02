@@ -1,0 +1,23 @@
+# LC-Pearl quick Gay-Berne potential validation configuration.
+# Edit representative_dump and paths, then run:
+#   Source tree: python lc_pearl_cli.py validate --config configs/quick_validate.toml
+#   Installed:    lc-pearl validate --config configs/quick_validate.toml
+
+[runtime]
+python = "auto"
+
+[paths]
+workdir = "/Users/joshua/Downloads/ssh-hkust/Result_MD_ball_ellipsoid_line_anchor-changeDOF_0406-mass1over3-l0600-unwrap-length8/Tstar_0.75/rho030"
+output_root = "lc_domain_pearl_v2_output"
+gb_param_file = "/Users/joshua/Desktop/MD/2026_04/0408/02_Youngs_Modulus/stretch-length7-Tstar0.4/in.single_chain_constant_force_aligned_box-F0.26-tail_v0_no_thermal-xuyu-zu.lmp"
+lammps_executable = "/Users/joshua/Desktop/Qiushan_Code/lammmps_git/lammps/build-asphere-mpi/lmp"
+
+[analysis]
+mesogen_type = 1
+
+[validation]
+representative_dump = "traj.force_clamp_aligned.0.dump"
+mpi_prefix = "mpiexec -np 4"
+microstate_sample_count = 12
+# Set microstate_sample_count = 0 and microstate_sample_percent = 100 for full pair validation.
+# microstate_sample_percent = 100

@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LC-Pearl V2 使用指南</title>
+  <style>
+    :root { --paper:#f7f1e5; --ink:#1f2b24; --muted:#526158; --green:#1f6b4b; --blue:#275779; --amber:#9b6425; --red:#8c3d2c; --line:#d8cbb5; --card:#fffaf0; --code:#17231d; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:radial-gradient(circle at 10% 0%,rgba(31,107,75,.16),transparent 28rem),linear-gradient(180deg,#f7f1e5,#eadbc3); color:var(--ink); font-family:"Avenir Next","PingFang SC","Hiragino Sans GB",sans-serif; line-height:1.68; }
+    main { width:min(1240px,calc(100% - 34px)); margin:30px auto 58px; background:rgba(247,241,229,.97); border:1px solid var(--line); border-radius:28px; overflow:hidden; box-shadow:0 26px 72px rgba(63,48,28,.15); }
+    header { padding:42px 48px 30px; background:linear-gradient(135deg,rgba(31,107,75,.15),rgba(155,100,37,.09)); border-bottom:1px solid var(--line); }
+    section { padding:24px 48px 52px; }
+    h1 { margin:0 0 10px; font-size:clamp(30px,4vw,52px); line-height:1.08; letter-spacing:-.04em; }
+    h2 { margin:34px 0 13px; color:var(--green); font-size:25px; }
+    h3 { margin:23px 0 8px; color:var(--blue); font-size:18px; }
+    p { margin:9px 0; }
+    code { padding:.12rem .34rem; border-radius:6px; background:rgba(31,107,75,.10); color:#173b2c; font-family:"SF Mono",Menlo,Consolas,monospace; font-size:.93em; overflow-wrap:anywhere; word-break:break-word; }
+    pre { overflow-x:auto; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; padding:16px 18px; border-radius:16px; background:var(--code); color:#fff6dd; font-size:13px; line-height:1.55; box-shadow:inset 0 0 0 1px rgba(255,255,255,.08); }
+    pre code { display:block; padding:0; background:transparent; color:inherit; white-space:inherit; overflow-wrap:inherit; word-break:inherit; }
+    table { width:100%; table-layout:fixed; border-collapse:collapse; margin:14px 0 24px; background:rgba(255,250,240,.78); border:1px solid var(--line); border-radius:16px; overflow:hidden; }
+    th,td { padding:11px 13px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; overflow-wrap:anywhere; word-break:break-word; }
+    th { background:rgba(31,107,75,.13); color:#173b2c; }
+    .lead { max-width:980px; font-size:18px; color:var(--muted); }
+    .note,.warn,.ok { padding:14px 16px; margin:16px 0; border-radius:14px; background:rgba(255,250,240,.72); }
+    .note { border-left:5px solid var(--amber); } .warn { border-left:5px solid var(--red); } .ok { border-left:5px solid var(--green); }
+    .flow { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin:18px 0 26px; }
+    .flow div { min-height:108px; padding:13px 12px; border:1px solid var(--line); border-radius:16px; background:rgba(255,250,240,.76); position:relative; }
+    .flow div:not(:last-child)::after { content:"→"; position:absolute; right:-18px; top:39px; color:var(--amber); font-size:22px; }
+    .flow b { display:block; color:var(--green); margin-bottom:4px; }
+    @media (max-width:1050px) { header,section{padding-left:22px;padding-right:22px;} main{width:calc(100% - 18px);} .flow{grid-template-columns:1fr;} .flow div::after{display:none;} }
+    @media (max-width:760px) { table,tbody,tr,th,td{display:block;width:100%;} tr{border-bottom:2px solid rgba(31,107,75,.16);} pre{font-size:12px;} }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>LC-Pearl V2 使用指南</h1>
+    <p class="lead">这份指南说明你现在怎么跑 V2、前置文件夹里放什么、阈值先验如何单独运行、如何看输出、如何在 OVITO 里检查 <code>lc_cluster/lc_domain/lc_pearl/lc_state</code>，以及怎样判断结果是否可靠。</p>
+  </header>
+  <section>
+    <h2>1. 推荐工作流</h2>
+    <div class="flow">
+      <div><b>进入 dump 目录</b>当前目录就是要分析的一组 dump。</div>
+      <div><b>准备 preflight</b>放 LAMMPS input、executable、可选 topology data。</div>
+      <div><b>自动验证</b>没有验证缓存就先跑 run 0 / microstate。</div>
+      <div><b>阈值先验</b>没有 <code>global_thresholds.json</code> 就先流式生成。</div>
+      <div><b>正式分析</b>生成 V2 output、OVITO labels、diagnostics。</div>
+    </div>
+    <pre><code>cd /path/to/dump_output_folder
+python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py</code></pre>
+    <p>第一次运行会创建 <code>lc_pearl_preflight/</code> 模板并停止。你补齐文件后再次运行。默认输出目录是 <code>lc_domain_pearl_v2_output/</code>。</p>
+
+    <h2>2. preflight 文件夹要放什么</h2>
+    <table>
+      <tr><th>你要提供的原始文件</th><th>放置路径</th><th>LC-Pearl 自动提取/生成</th></tr>
+      <tr><td>原始 LAMMPS input，含 <code>pair_style gayberne</code> 和 type 1-1 <code>pair_coeff</code></td><td><code>lc_pearl_preflight/lammps/*.in</code> 或 <code>*.lmp</code></td><td>自动标准化为 <code>lammps/gb_param_source.in</code>，提取 GB potential 参数、<code>special_bonds</code>、units、atom_style。</td></tr>
+      <tr><td>LAMMPS executable 路径</td><td><code>lc_pearl_preflight/lammps/lammps_executable.txt</code></td><td>用于 run 0 验证；内容示例：<code>/Users/joshua/Desktop/Qiushan_Code/lammmps_git/lammps/build-asphere-mpi/lmp</code>。</td></tr>
+      <tr><td>代表帧 dump</td><td>当前 dump 目录，不放进 preflight</td><td>默认自动选择第一个匹配 <code>*.dump</code> 的文件；也可在 <code>[validation].representative_dump</code> 指定。</td></tr>
+      <tr><td>原始 LAMMPS data 文件，可选但推荐</td><td><code>lc_pearl_preflight/topology/*.data</code> 或 <code>*.dat</code></td><td>自动生成 <code>topology/local_pairs.tsv</code> 和 <code>topology/exclude_pairs.tsv</code>。你不需要手写这两个 TSV。</td></tr>
+      <tr><td>已验证阈值先验，可选</td><td><code>lc_pearl_preflight/thresholds/global_thresholds.json</code></td><td>如果 fingerprint 匹配、GB potential 已验证、confidence gate 通过，V2 才会应用它；适合从高温到降温全采样得到一套项目级阈值后复制到多个相似模拟。注意“相似模拟”仍需你从温度、密度、链长、构型分布上做科研判断，代码只能检查 potential 和若干输入 fingerprint。</td></tr>
+    </table>
+    <div class="note"><b>旧命令映射：</b>旧的 <code>--gb-param-file "../in.single_chain_constant_force_aligned_box-F0.38-tail_v0_no_thermal-xuyu-zu.lmp"</code> 现在等价于把这个 <code>.lmp</code> 文件放进 <code>lc_pearl_preflight/lammps/</code>。旧的 <code>--dump-file traj.force_clamp_aligned.6055000.dump</code> 现在等价于在当前 dump 目录保留这个 dump，并在 config 中可选指定。</div>
+
+    <h2>3. 常用命令</h2>
+    <table>
+      <tr><th>目标</th><th>命令</th><th>说明</th></tr>
+      <tr><td>初始化模板</td><td><code>python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py init</code></td><td>只创建/检查 <code>lc_pearl_preflight/</code>，不跑分析。</td></tr>
+      <tr><td>自动验证+分析</td><td><code>python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py</code></td><td>默认。缺验证先验证；缺阈值先验先生成；最后 run。</td></tr>
+      <tr><td>只验证 GB potential</td><td><code>python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py validate</code></td><td>生成或复用 <code>validation/verified_potential.json</code>。</td></tr>
+      <tr><td>强制重验</td><td><code>python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py validate --refresh-validation</code></td><td>换了 LAMMPS、GB 参数、dump schema、topology 排除或代码后使用。</td></tr>
+      <tr><td>只跑分析</td><td><code>python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py run</code></td><td>使用已有验证缓存和阈值先验；缺关键文件会报错。</td></tr>
+      <tr><td>打印命令不执行</td><td><code>python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py print-auto</code></td><td>检查路径和参数。</td></tr>
+    </table>
+    <div class="note"><b>并行规则：</b><code>workers="auto"</code> 不是固定 10 核，而是 <code>min(可用 CPU 核数, 输入 dump 文件数, 默认上限 10)</code>。可用环境变量调整：主分析/GB audit 用 <code>LC_PEARL_MAX_WORKERS</code>，threshold prior 用 <code>LC_PEARL_MAX_AUTO_WORKERS</code>，precision calibration 用 <code>LC_PEARL_MAX_AUTO_CALIBRATION_WORKERS</code>。如果主分析启用跨文件 domain tracking，代码会为了持续性标签顺序处理多个 dump。</div>
+
+    <h2>4. 阈值先验如何单独运行</h2>
+    <p>如果你想用一个覆盖高温到降温的 dump 文件夹做全采样，生成一套项目级阈值，再复制到其它力/温度模拟，直接运行：</p>
+    <pre><code>cd /path/to/reference_dump_folder
+python3 /Users/joshua/Desktop/MD/LC-Pearl/scripts/lc_threshold_prior.py . \
+  --gb-param-file lc_pearl_preflight/lammps/gb_param_source.in \
+  --output-dir lc_pearl_preflight/thresholds \
+  --global-threshold-file lc_pearl_preflight/thresholds/global_thresholds.json \
+  --anchor-types 3 \
+  --global-frame-stride 1 \
+  --global-frame-budget 0 \
+  --workers auto</code></pre>
+    <p><code>--global-frame-stride 1</code> 表示全量候选帧；改成 <code>10</code> 就是在整个输入文件夹排序后的全局 frame 序列里每 10 帧取 1 帧，改成 <code>100</code> 就是每 100 帧取 1 帧。对于每个 dump 文件只有一帧的目录，不要用 <code>--every 10</code> 来控制全局抽样，因为 <code>--every</code> 只作用于单个 dump 文件内部。</p>
+    <table>
+      <tr><th>输出</th><th>怎么看</th></tr>
+      <tr><td><code>global_thresholds.json</code></td><td>最终可复用先验。看 <code>recommended.gb_off_strength</code>、<code>recommended.gb_on_strength</code>、<code>recommended.p2_cut</code>、<code>calibration_status</code>、<code>apply_allowed</code>。</td></tr>
+      <tr><td><code>streaming_manifest.json</code></td><td>说明读了多少文件、多少 raw frames、多少候选 frames、实际 selected frames、worker 数。</td></tr>
+      <tr><td><code>selected_frame_manifest.tsv</code></td><td>列出 streaming prior 实际使用的每一个 frame，包括文件名、timestep、全局 frame index、stride、offset、frame sampling weight。</td></tr>
+      <tr><td><code>stream_hist_2d_gb_p2.tsv</code></td><td>全局 2D 统计表，不是所有 pair 明细，因此不会生成几十 GB 数据库。</td></tr>
+      <tr><td><code>gb_strength_vs_p2_stream_hist.png</code></td><td>最重要的图。图上有 <code>gb_off</code>、<code>gb_on</code>、<code>p2_cut</code> 数值线。</td></tr>
+      <tr><td><code>audit_pair_examples.tsv</code></td><td>少量代表 pair 明细，用来人工抽查，而不是完整数据库。</td></tr>
+    </table>
+    <div class="ok"><b>可迁移使用：</b>如果同一 potential、同一 mesogen type、同一 topology 排除规则、相近 dump schema 不变，可以把整个 <code>lc_pearl_preflight/thresholds/</code> 复制到其它 dump 目录复用。V2 会检查 GB 参数 hash、mesogen type、axis、local/exclude pair hash、<code>s_excl</code> 和 <code>r_energy_cap</code>；不匹配会自动重建或报错。</div>
+    <div class="note"><b>阈值 prior 的 pair 范围：</b>当前 V2 prior 默认统计全部未排除 attractive candidate pairs，同时保留 local/nonlocal 直方图用于审查；它不是 nonlocal-only prior。如果 local contacts 明显主导 2D 分布，需要在 OVITO 和 diagnostics 中确认阈值没有被相邻链段统计带偏。</div>
+
+    <h2>5. 主输出目录怎么看</h2>
+    <table>
+      <tr><th>文件/目录</th><th>用途</th><th>先看什么</th></tr>
+      <tr><td><code>lc_domain_pearl_v2_output/run_summary.json</code></td><td>复现记录。</td><td>看 <code>potential_validation</code>、<code>threshold_prior</code>、输入文件数、输出路径。</td></tr>
+      <tr><td><code>aggregation_timeseries.tsv</code></td><td>主定量结果。</td><td><code>N_domain</code>、<code>N_pearl</code>、<code>largest_domain_fraction</code>、<code>largest_pearl_fraction</code>、<code>L_parallel</code>、<code>Rg_parallel/perp</code>。</td></tr>
+      <tr><td><code>per_file/*_lc_labels.dump</code></td><td>OVITO 主可视化。</td><td>用 <code>lc_state</code>、<code>lc_domain</code>、<code>lc_pearl</code>、<code>lc_cluster</code> 上色。</td></tr>
+      <tr><td><code>diagnostics/domain_diagnostics.tsv</code></td><td>domain 级审查。</td><td>看每个 domain 的 size、S2、robust/weak、nonlocal 支持。</td></tr>
+      <tr><td><code>diagnostics/pearl_candidate_diagnostics.tsv</code></td><td>pearl 合并审查。</td><td>看两个 domains 是否因为 gap、cross contacts、boundary support、aspect ratio 被接受或拒绝。</td></tr>
+      <tr><td><code>diagnostics/*.png</code></td><td>快速读图。</td><td>所有阈值线都会标注具体数值；图只用于判断参数是否明显过宽/过严，不替代 OVITO 抽查。</td></tr>
+    </table>
+
+    <h2>6. OVITO 上色逻辑</h2>
+    <p>打开 <code>lc_domain_pearl_v2_output/per_file/*_lc_labels.dump</code>。字段名前缀是小写 <code>lc_</code>，在某些字体里看起来像 <code>Ic_</code>。</p>
+    <table>
+      <tr><th>字段</th><th>怎么用</th><th>算法含义</th></tr>
+      <tr><td><code>lc_cluster</code></td><td>先用它看“肉眼空间聚集在哪里”。</td><td>视觉辅助 cluster，方便直观看团块，不是最终 robust domain 定义。</td></tr>
+      <tr><td><code>lc_cluster_size</code></td><td>看每个视觉 cluster 有多大。</td><td>同一个 <code>lc_cluster</code> 内 mesogen 数。</td></tr>
+      <tr><td><code>lc_contact_degree</code></td><td>看单个 mesogen 有多少通过阈值的接触边。</td><td>连接度高通常位于聚集体内部；边界粒子连接度低。</td></tr>
+      <tr><td><code>lc_min_pair_energy</code></td><td>看每个 mesogen 最强吸引 pair。</td><td>越负表示吸引越强。</td></tr>
+      <tr><td><code>lc_mean_pair_energy</code></td><td>看平均吸引环境。</td><td>比最小能量更平滑，但会受弱边影响。</td></tr>
+      <tr><td><code>lc_max_gb_strength</code></td><td>看归一化最强吸引。</td><td>高值说明至少有一个强吸引支持。</td></tr>
+      <tr><td><code>lc_mean_gb_strength</code></td><td>看平均归一化吸引。</td><td>用于判断一个粒子整体吸引环境是否稳定。</td></tr>
+      <tr><td><code>lc_domain</code></td><td>主看局部束。</td><td>同一编号表示同一帧同一个 domain。编号不保证跨帧连续。</td></tr>
+      <tr><td><code>lc_pearl</code></td><td>主看空间珠子。</td><td>同一编号表示同一帧同一个 3D pearl；一个 pearl 可含多个 domains。</td></tr>
+      <tr><td><code>lc_state</code></td><td>快速区分 weak/robust。</td><td><code>0</code> 非 domain，<code>1</code> weak local domain，<code>2</code> robust domain。</td></tr>
+    </table>
+    <div class="note"><b>没有 OVITO Pro 的加载建议：</b>先只打开 <code>*_lc_labels.dump</code> 看粒子标签。<code>*_lc_contact_segments.vtk</code> 是接触线段，OVITO Pro 可以 Add to scene 叠加；没有 Pro 时可以先忽略它，或者单独打开 VTK 看边是否过宽。</div>
+
+    <h2>7. 如何判断结果可靠</h2>
+    <table>
+      <tr><th>检查项</th><th>可靠的表现</th><th>问题信号</th></tr>
+      <tr><td>Potential validation</td><td><code>verified_potential.json</code> status 为 <code>validated</code>，microstate 误差小。</td><td>status 不是 validated；换了 potential 但还复用旧 cache。</td></tr>
+      <tr><td>Threshold prior</td><td><code>global_thresholds.json</code> 中 <code>apply_allowed=true</code> 且 run summary 里 <code>threshold_prior.applied=true</code>，selected frames 足够，2D 图中背景/gray/strong 有可分结构。</td><td><code>calibration_status=low</code>；<code>applied=false</code>；2D 图满屏无分界；selected frames 太少；<code>out_of_hist_range_pair_fraction</code> 偏高。</td></tr>
+      <tr><td>OVITO 抽查</td><td><code>lc_pearl</code> 对应肉眼的 3D 珠子，<code>lc_domain</code> 对应局部取向束。</td><td>远距离结构被同色连成一个 pearl，或明显紧密结构被大量拆碎。</td></tr>
+      <tr><td>Domain diagnostics</td><td>robust domains 多数 size ≥ 3、S2 达标、有 nonlocal support。</td><td>robust 全是二聚体或全靠 local edge。</td></tr>
+      <tr><td>Pearl candidate diagnostics</td><td>被合并的 domains 同时有小 gap、多接触、两侧边界支持、aspect ratio 不高。</td><td>只有一条桥接边也合并，或 aspect ratio 很大的细长丝被算成 pearl。</td></tr>
+    </table>
+
+    <h2>8. 什么时候需要重新验证或重新生成 prior</h2>
+    <table>
+      <tr><th>变化</th><th>run 0 验证</th><th>threshold prior</th></tr>
+      <tr><td>GB 参数或 LAMMPS pair_style/pair_coeff 变了</td><td>必须重验</td><td>必须重建</td></tr>
+      <tr><td>LAMMPS executable 或版本变了</td><td>建议重验</td><td>如果验证通过且 potential 相同，prior 可复用。</td></tr>
+      <tr><td>topology special_bonds/exclude 规则变了</td><td>建议重验</td><td>必须重建；local/exclude pair hash 不匹配时 V2 会拒绝复用。</td></tr>
+      <tr><td>只换力大小，但 potential、温度范围、密度/链长相近</td><td>通常可复用</td><td>通常可复用项目级 prior。</td></tr>
+      <tr><td>从高温冷却参考集生成了全局 prior</td><td>不用每个目录重验 potential，前提是 fingerprint 匹配</td><td>可复制 <code>thresholds/</code> 到相似目录。</td></tr>
+    </table>
+  </section>
+</main>
+</body>
+</html>

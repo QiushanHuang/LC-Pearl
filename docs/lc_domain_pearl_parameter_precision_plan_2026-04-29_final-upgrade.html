@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LC 参数精度升级方案与完成进度</title>
+  <style>
+    :root {
+      --paper: #f8f4e8;
+      --ink: #223028;
+      --green: #215b45;
+      --blue: #28547b;
+      --amber: #986222;
+      --red: #8b3f2a;
+      --line: #d9ceb8;
+      --card: rgba(255,255,255,0.68);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 15% 0%, rgba(33,91,69,0.13), transparent 27rem),
+        radial-gradient(circle at 86% 6%, rgba(40,84,123,0.12), transparent 30rem),
+        linear-gradient(180deg, #f8f4e8, #eadfc9);
+      font-family: "Avenir Next", "PingFang SC", "Hiragino Sans GB", sans-serif;
+      line-height: 1.68;
+    }
+    main { width: min(1180px, calc(100% - 36px)); margin: 32px auto 54px; border: 1px solid var(--line); border-radius: 28px; overflow: hidden; background: rgba(248,244,232,0.95); box-shadow: 0 24px 70px rgba(60,45,25,0.13); }
+    header { padding: 42px 48px 28px; border-bottom: 1px solid var(--line); background: linear-gradient(135deg, rgba(33,91,69,0.14), rgba(40,84,123,0.08)); }
+    .content { padding: 24px 48px 48px; }
+    h1 { margin: 0 0 10px; font-size: clamp(30px, 4vw, 52px); line-height: 1.08; letter-spacing: -0.04em; }
+    h2 { margin: 34px 0 14px; color: var(--green); font-size: 25px; }
+    h3 { margin: 22px 0 9px; color: var(--blue); font-size: 18px; }
+    p { margin: 9px 0; }
+    code { padding: 0.12rem 0.34rem; border-radius: 6px; background: rgba(33,91,69,0.10); color: #173b2d; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 0.93em; }
+    table { width: 100%; border-collapse: collapse; margin: 14px 0 24px; border: 1px solid var(--line); background: var(--card); border-radius: 16px; overflow: hidden; }
+    th, td { padding: 11px 13px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: rgba(33,91,69,0.13); color: #173b2d; }
+    .lead { font-size: 18px; max-width: 980px; color: #3d4a40; }
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 12px; color: white; }
+    .done { background: var(--green); }
+    .partial { background: var(--amber); }
+    .guard { background: var(--blue); }
+    .future { background: var(--red); }
+    .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 18px 0 26px; }
+    .flow div { padding: 13px 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--card); position: relative; min-height: 86px; }
+    .flow div:not(:last-child)::after { content: "→"; position: absolute; right: -18px; top: 31px; color: var(--amber); font-size: 22px; }
+    .flow b { display: block; color: var(--green); margin-bottom: 4px; }
+    .note, .warn { padding: 14px 16px; border-radius: 14px; background: rgba(255,255,255,0.62); margin: 16px 0; }
+    .note { border-left: 5px solid var(--amber); }
+    .warn { border-left: 5px solid var(--red); }
+    @media (max-width: 900px) { main { width: calc(100% - 18px); } header, .content { padding-left: 22px; padding-right: 22px; } .flow { grid-template-columns: 1fr; } .flow div::after { display: none; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>LC 参数精度升级方案与完成进度</h1>
+    <p class="lead">版本：2026-04-29 final-upgrade。旧的 next-roadmap 和 precision-upgrade 文件保留为过程记录；本文说明当前 pipeline 已完成哪些升级、哪些参数仍是经验/保护参数，以及以后怎样继续提高精度。</p>
+  </header>
+  <section class="content">
+    <h2>一、升级目标</h2>
+    <p>目标不是把所有参数都“自动化”，而是把每个参数分成三类：可由数据自动推荐并安全应用；可由数据推荐但必须人工确认；只能作为保护性固定参数。这样可以避免把统计不足、event-aware 非无偏样本或未验证 potential 误当成精确结论。</p>
+
+    <div class="flow">
+      <div><b>1. 输入采样</b>记录 dump、frame、pair、microstate 的候选数、选中数、具体对象和抽样率。</div>
+      <div><b>2. Potential 验证</b>whole-frame run 0 加 sampled two-particle microstates，生成 verified potential artifact。</div>
+      <div><b>3. 阈值校准</b>2D joint gate 默认启用，bootstrap 和 support gate 决定是否允许 apply。</div>
+      <div><b>4. 结构审查</b>domain/pearl 候选表、recommend-only pearl 参数、OVITO 和统计图共同确认。</div>
+    </div>
+
+    <h2>二、完成状态</h2>
+    <table>
+      <tr><th>模块</th><th>状态</th><th>说明</th></tr>
+      <tr><td><code>gb_pair_audit.py</code></td><td><span class="badge done">已升级</span></td><td>支持大量分层 pair 抽样、near-threshold/strong/low-high P2/local-nonlocal 覆盖，并输出 frame/pair sampling manifest。</td></tr>
+      <tr><td><code>event-aware frame sampling</code></td><td><span class="badge guard">已实现，有门控</span></td><td>用于捕捉结构快速变化帧。因为不是无偏随机样本，参与校准时禁止自动 apply，只作为覆盖增强和诊断。</td></tr>
+      <tr><td><code>lc_calibrate_thresholds.py</code></td><td><span class="badge done">已升级</span></td><td>默认 <code>joint2d</code>，在 <code>GB strength × P2</code> 网格中选择 <code>gb_off/gb_on/p2_cut</code>，并输出 <code>joint2d_grid.tsv</code>。</td></tr>
+      <tr><td><code>lc_lammps_run0_validate.py</code></td><td><span class="badge done">已升级</span></td><td>microstate 抽样输出 candidate/selected 数、具体 pair、actual sampling rate、Python/LAMMPS energy 差。</td></tr>
+      <tr><td><code>pearl candidate diagnostics</code></td><td><span class="badge guard">已实现，recommend-only</span></td><td>输出 domain-domain 候选表和 pearl 参数建议，但不会自动改写主算法参数。</td></tr>
+      <tr><td>严格 2D KDE/GMM posterior</td><td><span class="badge future">未做</span></td><td>当前是 weighted rectangular grid gate，更稳定可审查；严格 2D KDE/GMM 需要更多样本和更复杂的边界解释。</td></tr>
+      <tr><td>完整 topology parser</td><td><span class="badge partial">部分完成</span></td><td>当前支持 local/exclude 辅助文件和 fingerprint；更通用的 topology 模块仍建议后续独立拆分。</td></tr>
+    </table>
+
+    <h2>三、每个参数的精度来源</h2>
+    <table>
+      <tr><th>参数</th><th>数据来源</th><th>算法</th><th>是否精准</th></tr>
+      <tr><td><code>gb_off_strength</code></td><td><code>gb_candidate_pairs.tsv</code> 中的 <code>attraction_strength</code>、<code>p2_score</code>、sampling weight。</td><td>2D joint grid：要求 gray 区、strong 区、background 区都有有效样本，且至少两个独立 frame/block。</td><td>统计推荐，不是物理常数。potential 未验证或 event-aware 非无偏参与时不自动应用。</td></tr>
+      <tr><td><code>gb_on_strength</code></td><td>同上，重点看 high-strength + high-P2 区域。</td><td>在满足 strong support 的候选 gate 中选择分数最高者。</td><td>比手猜更可靠，但依赖候选 pair 覆盖范围。</td></tr>
+      <tr><td><code>p2_cut</code></td><td>pair 取向序参量 <code>p2_score</code>。</td><td>与 GB strength 联合选择，避免“能量强但取向差”或“取向好但无吸引”的误判。</td><td>统计阈值。若 P2 分布没有清晰分离，结果会降级为 keep_current。</td></tr>
+      <tr><td><code>robust_min_s2</code></td><td>domain diagnostics 中 domain 内部取向一致性。</td><td>有足够 domain 样本时用 mixture/KDE/CI 推荐。</td><td>受当前 domain 定义影响，属于二级校准。</td></tr>
+      <tr><td><code>pearl_gap_cut</code></td><td><code>pearl_candidate_diagnostics.tsv</code> 的 accepted/rejected domain-domain pair。</td><td>从 accepted candidate 的 gap 分布推荐。</td><td>recommend-only，不自动应用。</td></tr>
+      <tr><td><code>pearl_min_cross_contacts</code></td><td>domain-domain 跨域接触数。</td><td>从 accepted candidate 的低分位数推荐下限。</td><td>recommend-only，需要 OVITO 检查误 merge/split。</td></tr>
+      <tr><td><code>pearl_max_aspect_ratio</code></td><td>合并后 3D 形状主轴比。</td><td>accepted candidate 的高分位数给出保护上限。</td><td>保护参数，不应过度自动化。</td></tr>
+    </table>
+
+    <h2>四、抽样审计规则</h2>
+    <p>所有抽样都必须能回答三句话：候选总数是多少；具体抽中了哪几个；抽样率是多少。当前代码对应输出如下。</p>
+    <table>
+      <tr><th>抽样类型</th><th>数量字段</th><th>具体对象字段</th><th>抽样率字段</th></tr>
+      <tr><td>frame sampling</td><td><code>candidate_frame_count</code>、<code>selected_frame_count</code></td><td><code>frame_index</code>、<code>timestep</code></td><td><code>frame_sampling_rate_among_processed_frames</code></td></tr>
+      <tr><td>pair sampling</td><td><code>candidate_pairs_in_stratum</code>、<code>selected_pairs_in_stratum</code></td><td><code>atom_i</code>、<code>atom_j</code>、<code>sampling_strata</code></td><td><code>pair_sampling_rate</code></td></tr>
+      <tr><td>event-aware</td><td>同 frame sampling</td><td><code>frame_sampling_reason</code> 区分 event center、neighbor、fallback。</td><td>如果是真 event-aware，<code>inclusion_probability_known=0</code>，只做覆盖审计；静态回退则按 stratified 处理。</td></tr>
+      <tr><td>LAMMPS microstate</td><td><code>candidate_pair_count</code>、<code>selected_pair_count</code></td><td><code>selection.selected_pairs</code> 和 <code>rows</code> 中的 <code>atom_i/atom_j</code></td><td><code>actual_sampling_rate</code></td></tr>
+    </table>
+
+    <h2>五、什么时候需要重验 potential</h2>
+    <p>验证一次不是永久有效，而是对同一个 fingerprint 有效。fingerprint 包括 GB 参数文件、forwarded 参数、LAMMPS executable、mesogen type、local/exclude 文件等。</p>
+    <table>
+      <tr><th>情况</th><th>是否重验</th><th>原因</th></tr>
+      <tr><td>只换同一 potential 下的新 dump / 新 force / 新温度</td><td>通常不用</td><td>如果 shape、pair_coeff、pair_style、special_bonds/topology 处理都不变，已验证 artifact 可复用。</td></tr>
+      <tr><td>换 <code>pair_coeff</code>、<code>pair_style</code>、ellipsoid shape、单位制</td><td>必须重验</td><td>GB 能量函数或参数变了。</td></tr>
+      <tr><td>更换 LAMMPS build 或 executable</td><td>建议重验</td><td>不同编译版本/patch 可能影响 pair style 行为。</td></tr>
+      <tr><td>新增或修改 local/exclude/topology 规则</td><td>必须重验</td><td>分析中哪些 pair 参与/排除会改变。</td></tr>
+      <tr><td>发现 Python/LAMMPS microstate 差值接近 tolerance</td><td>必须扩大抽样后重验</td><td>说明 potential reconstruction 还不稳。</td></tr>
+    </table>
+
+    <h2>六、为什么还需要 topology</h2>
+    <p>topology 模块不是为了把 bond 当成聚集，而是为了正确解释聚集：相邻 mesogen 的吸引要保留，但需要知道它是 local 支持还是 nonlocal 支持；LAMMPS 的 special_bonds 或排除规则也会影响某些 pair 是否真的计算 pair energy。</p>
+    <div class="note">
+      <p>建议后续把 topology 拆成独立模块：读取 LAMMPS data/in 文件，生成 <code>local_pair_file</code> 和 <code>exclude_pair_file</code>，并把文件 sha256 写入 potential fingerprint。这样同一套 domain/pearl 分析可迁移到其他项目。</p>
+    </div>
+
+    <h2>七、仍可继续提高精度的方向</h2>
+    <table>
+      <tr><th>方向</th><th>为什么现在不做</th><th>何时值得做</th></tr>
+      <tr><td>严格 2D KDE/GMM posterior boundary</td><td>当前样本来自筛选和分层抽样，直接做复杂 posterior 容易制造不可解释边界。</td><td>当 candidate pair 覆盖全量、无偏样本足够大、人工 OVITO 标签可作为 holdout 时。</td></tr>
+      <tr><td>pearl 参数自动 apply</td><td>pearl 是 domain 的高阶组合，误合并代价大；当前只有 recommend-only 更稳。</td><td>当多个 force/temperature 下 pearl candidate 表和 OVITO 审查都显示稳定 plateau 时。</td></tr>
+      <tr><td>全量 microstate validation</td><td>可能很慢；默认 12 个抽样用于快速 golden check。</td><td>当需要发表级 potential 复现证明，或发现抽样 pair 有失败趋势时，用 <code>--microstate-sample-percent 100</code>。</td></tr>
+      <tr><td>跨参数 ARI/Jaccard 稳定性报告</td><td>需要完整 force/temperature 批处理和统一 holdout 设计。</td><td>当要把“robust domain/pearl”作为论文主指标时。</td></tr>
+    </table>
+
+    <div class="warn">
+      <b>使用原则：</b>当前 pipeline 的强项是“可审计、可复现、可在 OVITO 中核对”。不要把推荐阈值当作绝对真值；先看 potential validation、sampling manifest、apply_allowed、warnings，再看 domain/pearl 统计趋势。
+    </div>
+  </section>
+</main>
+</body>
+</html>

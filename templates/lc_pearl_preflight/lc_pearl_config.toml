@@ -1,0 +1,98 @@
+# LC-Pearl portable preflight config.
+# Put this whole lc_pearl_preflight folder inside a dump output directory.
+# Then run, from that dump directory:
+#   python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py
+
+[runtime]
+# "auto" means use the Python that launched lc_pearl_here.py.
+python = "auto"
+
+[paths]
+# Dump files are read from the current working directory, not from this preflight folder.
+input = "."
+pattern = "*.dump"
+recursive = false
+output_root = "lc_domain_pearl_v2_output"
+
+# Required, but you do not have to create this exact filename by hand.
+# Put an original .in/.lmp file containing pair_style gayberne and pair_coeff
+# into lammps/. lc_pearl_here.py auto-detects it and copies it to this
+# canonical filename. Relative paths are resolved inside lc_pearl_preflight/.
+gb_param_file = "lammps/gb_param_source.in"
+
+# Required for automatic validation. You can leave this blank and instead put
+# the executable path in lammps/lammps_executable.txt.
+lammps_executable = ""
+
+[pipeline]
+potential_validation = "cache"
+
+[threshold_prior]
+# LC Domain-Pearl V2 default. If thresholds/global_thresholds.json exists and
+# matches the GB parameter file, it is applied before the main analysis. If it
+# is missing, the pipeline builds it with streaming full-frame statistics.
+mode = "auto"
+file = "thresholds/global_thresholds.json"
+output_dir = "thresholds"
+every = 1
+# 1 = full global-frame sampling; 10 = every 10th global candidate frame; 100 = every 100th.
+# Use this for directories where each dump file is one frame.
+global_frame_stride = 1
+# 0 means stream all frames. Set a positive number only for quick exploratory
+# calibration; ignored when global_frame_stride > 1.
+global_frame_budget = 0
+block_size_frames = 100
+file_chunk_size = 500
+max_block_histograms = 256
+audit_example_pairs = 5000
+workers = "auto"
+seed = 20260429
+min_pairs = 100
+min_oriented_pairs = 60
+# auto = min(available CPU cores, ceil(input dump files / file_chunk_size), LC_PEARL_MAX_AUTO_WORKERS).
+# Default LC_PEARL_MAX_AUTO_WORKERS is 10.
+
+[analysis]
+contact_mode = "gayberne"
+mesogen_type = 1
+anchor_types = "3"
+axis = "auto"
+workers = "auto"
+every = 1
+n_min = 3
+s_excl = 1
+edge_diagnostics_table = "off"
+edge_diagnostics_sample_size = 200000
+write_frame_jsonl = false
+# edge_diagnostics_table:
+#   "off"    default; write summary JSON and plots only.
+#   "sample" write a bounded edge_diagnostics.tsv sample.
+#   "full"   write every accepted edge; expensive for large dump folders.
+
+# Optional. If these files exist at topology/local_pairs.tsv or
+# topology/exclude_pairs.tsv, lc_pearl_here.py uses them automatically.
+# Do not write these TSV files by hand. Prefer putting a raw LAMMPS data file
+# in topology/ and let preflight generate them.
+# local_pair_file = "topology/local_pairs.tsv"
+# exclude_pair_file = "topology/exclude_pairs.tsv"
+
+[topology]
+# Optional. Put a LAMMPS data file with Atoms and Bonds sections in topology/.
+# If exactly one *.data or *.dat file exists, it is auto-detected. The wrapper
+# uses Bonds plus special_bonds lj factors to generate:
+#   topology/local_pairs.tsv
+#   topology/exclude_pairs.tsv
+data_file = "auto"
+# "auto" reads special_bonds lj from the GB input if present; otherwise uses 0,1,1.
+special_lj = "auto"
+
+[validation]
+# "auto" selects the first dump in the current directory matching [paths].pattern.
+# You can set a specific current-directory file, for example:
+# representative_dump = "traj.force_clamp_aligned.6055000.dump"
+representative_dump = "auto"
+frame_index = 0
+mpi_prefix = "mpiexec -np 4"
+microstate_sample_count = 12
+# Set microstate_sample_count = 0 and microstate_sample_percent = 100 for full pair validation.
+# microstate_sample_percent = 100
