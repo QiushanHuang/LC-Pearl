@@ -2,6 +2,8 @@
 
 LC-Pearl v1.0.0 is the first stable release of the liquid-crystal domain-pearl aggregation pipeline.
 
+This release is open source under the MIT License. The listed contributor for the v1.0.0 release is Qiushan Huang / 黄秋山.
+
 ## Scientific Scope
 
 - Quantifies mesogen aggregation in LAMMPS dump trajectories with type-1 ellipsoids as mesogen members.

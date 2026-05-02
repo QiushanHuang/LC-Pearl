@@ -1,194 +1,66 @@
 # LC-Pearl v1.0.0
 
-LC-Pearl is a reproducible analysis pipeline for quantifying liquid-crystal mesogen aggregation in LAMMPS dump trajectories. It was designed for single-chain or chain-like LC elastomer simulations where Gay-Berne attraction, local orientational order, chain connectivity, and external stretching compete to form pearl-necklace-like structures.
+[![简体中文](https://img.shields.io/badge/语言-简体中文-1677ff)](#中文)
+[![English](https://img.shields.io/badge/Language-English-24292f)](#english)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Release](https://img.shields.io/badge/release-v1.0.0-blue.svg)](RELEASE_NOTES_v1.0.0.md)
 
-The v1.0.0 release defines a three-level hierarchy:
+## 中文
 
-- `mesogen contact`: a pairwise attractive, orientationally relevant type-1 ellipsoid interaction.
-- `domain`: a local mesogen bundle inferred from the contact graph and classified as weak or robust.
-- `pearl`: a compact 3D bead-like assembly of one or more robust domains.
+LC-Pearl 是一个面向 LAMMPS dump 轨迹的液晶 mesogen 聚集分析 pipeline，用于定量描述 Gay-Berne 吸引、局部取向、链连接和外力拉伸共同作用下形成的 domain-pearl 聚集结构。
 
-The pipeline also reports axial mechanics (`L_parallel`, `Rg_parallel`, `Rg_perp`, `S2_force`) so aggregation can be compared against force, stretch, temperature, and time.
+本仓库为 `v1.0.0` 开源发行版。完整中文说明见 [README.zh-CN.md](README.zh-CN.md)，算法和参数细节见 [docs/lc_pearl_algorithm_reference.html](docs/lc_pearl_algorithm_reference.html)，使用手册见 [docs/lc_pearl_user_guide.html](docs/lc_pearl_user_guide.html)。
 
-## What Is Released
+核心层级定义：
 
-This repository contains the complete LC-Pearl v1 pipeline:
+- `mesogen contact`：type-1 ellipsoid 之间的吸引和取向相关 pair contact。
+- `domain`：由 contact graph 推断的局部 mesogen 束，分为 weak local domain 和 robust domain。
+- `pearl`：一个或多个 robust domain 在 3D 空间中组成的 bead-like 致密团块。
+- `mechanics`：`L_parallel`、`Rg_parallel`、`Rg_perp`、`S2_force` 等力学辅助量。
 
-- Python analysis scripts in `scripts/`.
-- Current-directory launcher `lc_pearl_here.py`.
-- TOML-driven launcher `lc_pearl_cli.py`.
-- Preflight template in `templates/lc_pearl_preflight/`.
-- Quick configuration files in `configs/`.
-- Academic user and algorithm manuals in `docs/`.
-- Regression test for the 2D lobe threshold prior in `tests/`.
-
-The software release is `v1.0.0`. The current threshold-prior artifact schema is `schema_version = 5`, named `LC Domain-Pearl V2 2D lobe streaming threshold prior`; this is an internal algorithm schema name, not the GitHub release number.
-
-## Installation
-
-Use Python 3.11 or newer. The minimal runtime dependencies are `numpy` and `matplotlib`.
-
-```bash
-cd /Users/joshua/Desktop/MD/LC-Pearl
-/Users/joshua/Desktop/MD/venv/bin/python3 -m pip install -e .
-```
-
-If you do not install the package, run scripts directly with the same Python environment:
-
-```bash
-/Users/joshua/Desktop/MD/venv/bin/python3 lc_pearl_cli.py print-run --config configs/quick_run.toml
-```
-
-## Recommended Current-Directory Workflow
-
-Enter a folder that contains LAMMPS dump files and run:
+最简运行方式：
 
 ```bash
 cd /path/to/dump_output_folder
-python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py
+python3 /path/to/LC-Pearl/lc_pearl_here.py
 ```
 
-On first use, LC-Pearl creates `lc_pearl_preflight/` and tells you what is missing. Put the required source files there:
-
-- `lc_pearl_preflight/lammps/*.in` or `*.lmp`: original LAMMPS input containing `pair_style gayberne` and the type 1-1 `pair_coeff`.
-- `lc_pearl_preflight/lammps/lammps_executable.txt`: one line with the LAMMPS executable path, for example `/Users/joshua/Desktop/Qiushan_Code/lammmps_git/lammps/build-asphere-mpi/lmp`.
-- Optional `lc_pearl_preflight/topology/*.data` or `*.dat`: LAMMPS data file with `Atoms` and `Bonds` sections. LC-Pearl converts it into local-pair and excluded-pair tables.
-
-Then run:
+第一次运行会创建 `lc_pearl_preflight/`，请按提示放入 LAMMPS input、LAMMPS executable 路径和可选 topology data。之后运行：
 
 ```bash
-python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py auto
+python3 /path/to/LC-Pearl/lc_pearl_here.py auto
 ```
 
-`auto` performs the following sequence:
+贡献者：Qiushan Huang / 黄秋山。
 
-1. Reuse or create `lc_pearl_preflight/validation/verified_potential.json`.
-2. Reuse or create `lc_pearl_preflight/thresholds/global_thresholds.json`.
-3. Apply the 2D lobe threshold prior before the main analysis.
-4. Run the domain, pearl, OVITO-label, and mechanics analysis.
+开源声明：LC-Pearl 以 MIT License 开源发布。使用、修改和再分发时请保留版权与许可证声明；用于学术工作时建议引用 `CITATION.cff` 并说明使用的 threshold prior、domain 和 pearl 定义。
 
-## Config-Driven Workflow
+## English
 
-Edit `configs/quick_run.toml`, then preview the command:
+LC-Pearl is a LAMMPS dump analysis pipeline for quantifying liquid-crystal mesogen aggregation under the competition between Gay-Berne attraction, local orientational order, chain connectivity, and external stretching.
+
+This repository is the open-source `v1.0.0` release. See [README.en.md](README.en.md) for the full English overview, [docs/lc_pearl_algorithm_reference.html](docs/lc_pearl_algorithm_reference.html) for the algorithm and parameter reference, and [docs/lc_pearl_user_guide.html](docs/lc_pearl_user_guide.html) for the user manual.
+
+Core hierarchy:
+
+- `mesogen contact`: pairwise attractive and orientationally relevant contact between type-1 ellipsoids.
+- `domain`: local mesogen bundle inferred from the contact graph, classified as weak local or robust.
+- `pearl`: compact 3D bead-like aggregate composed of one or more robust domains.
+- `mechanics`: auxiliary mechanical observables including `L_parallel`, `Rg_parallel`, `Rg_perp`, and `S2_force`.
+
+Minimal workflow:
 
 ```bash
-cd /Users/joshua/Desktop/MD/LC-Pearl
-/Users/joshua/Desktop/MD/venv/bin/python3 lc_pearl_cli.py print-run --config configs/quick_run.toml
+cd /path/to/dump_output_folder
+python3 /path/to/LC-Pearl/lc_pearl_here.py
 ```
 
-Run the pipeline:
+The first run creates `lc_pearl_preflight/` and reports missing inputs. Add the LAMMPS input, LAMMPS executable path, and optional topology data, then run:
 
 ```bash
-/Users/joshua/Desktop/MD/venv/bin/python3 lc_pearl_cli.py run --config configs/quick_run.toml
+python3 /path/to/LC-Pearl/lc_pearl_here.py auto
 ```
 
-Validate only:
+Contributor: Qiushan Huang.
 
-```bash
-/Users/joshua/Desktop/MD/venv/bin/python3 lc_pearl_cli.py validate --config configs/quick_validate.toml
-```
-
-## Main Outputs
-
-Output is written by default to `lc_domain_pearl_v2_output/`.
-
-- `aggregation_timeseries.tsv`: frame-level quantitative table for aggregation, domains, pearls, and mechanics.
-- `per_file/*_aggregation.tsv`: per-input-file time series.
-- `per_file/*_summary.json`: compact per-file summary.
-- `per_file/*_lc_labels.dump`: OVITO-readable particle labels, when OVITO label output is enabled.
-- `per_file/*_lc_cluster_envelopes.dump`: visual cluster envelope particles.
-- `per_file/*_lc_contact_edges.dump`: local-style edge records for attractive contacts.
-- `per_file/*_lc_contact_segments.vtk`: OVITO-loadable contact line segments.
-- `diagnostics/diagnostic_summary.json`: thresholds, counts, and diagnostic provenance.
-- `diagnostics/gb_strength_vs_p2.png`: accepted-edge diagnostic under the current main-analysis gates.
-- `lc_pearl_preflight/thresholds/gb_strength_vs_p2_stream_hist.png`: full streaming candidate-pair distribution used for threshold prior.
-- `lc_pearl_preflight/thresholds/gb_strength_vs_p2_stream_lobe_split_dotgrid.png`: dot-grid view of the same full 2D distribution with selected thresholds.
-- `lc_pearl_preflight/thresholds/global_thresholds.json`: reusable threshold-prior artifact.
-
-By default, LC-Pearl does not write the full `edge_diagnostics.tsv` or full per-frame JSONL debug records because these files can become multi-GB outputs. Enable them only when needed:
-
-```toml
-[analysis]
-edge_diagnostics_table = "sample"  # off, sample, or full
-edge_diagnostics_sample_size = 200000
-write_frame_jsonl = true
-```
-
-## OVITO Visualization
-
-Open `per_file/*_lc_labels.dump` in OVITO. Useful scalar fields include:
-
-- `lc_cluster`: visual center-distance cluster id.
-- `lc_cluster_size`: size of the visual cluster.
-- `lc_contact_degree`: number of accepted contact edges incident on a mesogen.
-- `lc_min_pair_energy`: most attractive pair energy involving that mesogen.
-- `lc_mean_pair_energy`: mean attractive pair energy involving that mesogen.
-- `lc_max_gb_strength`: strongest normalized attraction involving that mesogen.
-- `lc_mean_gb_strength`: mean normalized attraction involving that mesogen.
-- `lc_domain`: robust or weak domain id.
-- `lc_pearl`: 3D pearl id.
-- `lc_state`: compact state code for unassigned, weak-domain, robust-domain, and pearl-supported particles.
-
-For contact geometry, load `*_lc_contact_segments.vtk` as an additional OVITO pipeline. If OVITO Pro is unavailable, inspect labels and envelopes first, then load line segments separately for representative frames.
-
-## Algorithm Summary
-
-LC-Pearl uses type-1 ellipsoids as mesogen members. Type-2 spheres and type-3 anchors are not aggregation members, but they can support chain ordering, endpoints, stretch direction, and topology reconstruction.
-
-For each candidate E-E pair, the Gay-Berne pair energy is reconstructed from the dump coordinates, quaternions, shape axes, and the LAMMPS `pair_style/pair_coeff` source file. The normalized attraction strength is
-
-```text
-gb_strength = max(0, -U_GB / U_well)
-```
-
-The orientational score is
-
-```text
-P2 = (3 |u_i dot u_j|^2 - 1) / 2
-```
-
-The current threshold prior is selected from the full 2D distribution of `gb_strength x P2`, not from already accepted edges. It identifies the high-P2 weak-contact lobe, the high-P2 strong-attraction lobe, and the valley between them. This gives `gb_on`; `gb_off` is a conservative left-lobe shoulder for gray/support contacts; `p2_cut` is the orientation gate used consistently in the 2D split.
-
-Domains are then built from the contact graph. Weak local domains are retained. Robust domains require size and evidence such as orientation, persistence, nonlocal support, and parameter stability. Pearls are defined at the next level: robust domains merge into a pearl only when their 3D gap, cross contacts, boundary support, and bead-like aspect ratio satisfy the pearl criteria.
-
-## Key Parameters
-
-- `contact_mode = "gayberne"`: use reconstructed Gay-Berne pair energy for contact strength.
-- `gb_on_strength`: strong edge threshold from the threshold prior.
-- `gb_off_strength`: gray/support edge threshold from the threshold prior.
-- `p2_cut`: pair orientational threshold.
-- `n_min`: minimum mesogens for robust-domain size evidence.
-- `s_excl`: chain-sequence separation treated as local support.
-- `domain_min_lifetime`: processed-frame age used as persistence evidence.
-- `pearl_gap_cut`: maximum 3D domain-domain gap for pearl merging.
-- `pearl_min_cross_contacts`: minimum cross-domain contacts for pearl merging.
-- `pearl_min_boundary_particles`: minimum supported boundary particles on both domains.
-- `pearl_max_aspect_ratio`: upper bound for bead-like compactness.
-- `threshold_prior.global_frame_stride`: full or strided frame sampling for the threshold prior. `1` means all candidate frames.
-- `workers = "auto"`: uses up to CPU count, input size, and the environment cap `LC_PEARL_MAX_WORKERS` or `LC_PEARL_MAX_AUTO_WORKERS`.
-
-## Debugging and Reliability Checks
-
-Use this order:
-
-1. Confirm the potential cache: `lc_pearl_preflight/validation/verified_potential.json`.
-2. Inspect `lc_pearl_preflight/thresholds/global_thresholds.json`.
-3. Compare `gb_strength_vs_p2_stream_hist.png` and `gb_strength_vs_p2_stream_lobe_split_dotgrid.png`.
-4. Check `diagnostics/diagnostic_summary.json` for actual applied thresholds.
-5. Inspect OVITO labels for representative frames.
-6. Compare `N_domain`, `N_pearl`, largest domain fraction, largest pearl fraction, `L_parallel`, and `Rg_parallel/Rg_perp` across force or temperature.
-
-If threshold cuts look wrong, rebuild the threshold prior by deleting only `lc_pearl_preflight/thresholds/global_thresholds.json` and rerunning. If potential parameters change, rerun validation and rebuild the threshold prior.
-
-## Documentation
-
-The full academic manuals are:
-
-- `docs/lc_pearl_user_guide.html`
-- `docs/lc_pearl_algorithm_reference.html`
-
-Historical process notes are kept separately in `docs/` and are not used as the current algorithm reference.
-
-## Release
-
-This repository is prepared as `LC-Pearl v1.0.0`, the first stable release of the domain-pearl aggregation analysis pipeline.
+Open-source notice: LC-Pearl is released under the MIT License. Please retain the copyright and license notice when using, modifying, or redistributing the code. For academic use, cite `CITATION.cff` and report the threshold prior, domain definition, and pearl definition used in the analysis.

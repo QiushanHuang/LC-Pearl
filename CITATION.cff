@@ -5,4 +5,5 @@ date-released: "2026-05-02"
 authors:
   - family-names: "Huang"
     given-names: "Qiushan"
+license: "MIT"
 message: "If you use LC-Pearl in academic work, cite this software release and describe the threshold prior, domain, and pearl definitions used in your analysis."

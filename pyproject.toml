@@ -3,6 +3,7 @@ name = "lc-pearl"
 version = "1.0.0"
 description = "LC-Pearl: liquid-crystal domain and pearl-necklace analysis pipeline for LAMMPS dump trajectories."
 requires-python = ">=3.11"
+license = { file = "LICENSE" }
 dependencies = [
   "numpy",
   "matplotlib",
@@ -21,6 +22,10 @@ py-modules = ["lc_pearl_cli", "lc_pearl_here"]
   "VERSION",
   "RELEASE_NOTES_v1.0.0.md",
   "CITATION.cff",
+  "LICENSE",
+  "CONTRIBUTORS.md",
+  "README.zh-CN.md",
+  "README.en.md",
 ]
 "share/lc-pearl/configs" = [
   "configs/quick_run.toml",
