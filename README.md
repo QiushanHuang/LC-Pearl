@@ -7,7 +7,7 @@
 
 ## English
 
-LC-Pearl is a Python pipeline for turning LAMMPS liquid-crystal mesogen trajectories into reproducible aggregation and pearl-necklace metrics. It combines Gay-Berne attraction, pair alignment, chain-locality evidence, temporal persistence, 3D bead geometry, OVITO-ready labels, and mechanics time series to separate weak local bundling, robust mesogen domains, and compact pearls in configurations where visual cluster assignment is ambiguous.
+LC-Pearl is a research-oriented Python pipeline for quantitatively characterizing aggregation behavior and pearl-necklace morphology in LAMMPS liquid-crystal mesogen trajectories. It combines Gay-Berne attraction, pair alignment, chain-locality evidence, temporal persistence, 3D bead geometry, OVITO visualization labels, and mechanics time series to convert visually ambiguous cluster configurations into analysis-ready mesogen contacts, weak/robust domains, compact 3D pearls, OVITO labels, and time series for mechanics-correlation analysis.
 
 The v2.1.0 release defines a three-level physical hierarchy plus two diagnostic core-contact tiers:
 
