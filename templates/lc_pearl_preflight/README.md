@@ -6,7 +6,7 @@
 python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py
 ```
 
-默认行为是：如果 `validation/verified_potential.json` 存在且和当前参数匹配，就复用验证；否则先跑 LAMMPS run 0 / microstate 验证。然后检查 `thresholds/global_thresholds.json`：只有在 GB potential 已验证、prior fingerprint 匹配、confidence gate 通过时，才把其中的 `gb_off/gb_on/p2_cut` 应用到主分析；如果 prior 不存在，就先用 V2 streaming prior 生成它。
+默认行为是：如果 `validation/verified_potential.json` 存在且和当前参数匹配，就复用验证；否则先跑 LAMMPS run 0 / microstate 验证。然后检查 `thresholds/global_thresholds.json`：只有在 GB potential 已验证且 prior fingerprint 匹配时，才把其中的 `gb_off/gb_on/p2_cut` 以及 diagnostic `gb_core/p2_core`、`gb_strict_core/p2_strict_core` 应用到主分析；如果 prior 不存在，就先用 V2.1.0 streaming prior 生成它。
 
 ## 必须放进去的文件
 
@@ -23,7 +23,7 @@ python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py
 | `topology/*.data` 或 `topology/*.dat` | 原始 LAMMPS data 文件，包含 `Atoms` 和 `Bonds` section。preflight 会自动根据 Bonds 和 `special_bonds lj` 生成 `topology/local_pairs.tsv` 与 `topology/exclude_pairs.tsv`。 |
 | `topology/local_pairs.tsv` | 自动生成的内部标准文件；两列 atom id，表示链局部/相邻支持 pair。你通常不需要手写。 |
 | `topology/exclude_pairs.tsv` | 自动生成的内部标准文件；两列 atom id，表示不应参与 contact 判断的 pair。你通常不需要手写。 |
-| `thresholds/global_thresholds.json` | V2 阈值先验。若存在且 fingerprint 匹配、GB potential 已验证、confidence gate 通过，wrapper 会在主分析前自动应用其中的 `gb_off_strength`、`gb_on_strength`、`p2_cut`。若不存在会自动生成。 |
+| `thresholds/global_thresholds.json` | V2.1.0 阈值先验。若存在且 fingerprint 匹配、GB potential 已验证，wrapper 会在主分析前自动应用其中的 `gb_off_strength`、`gb_on_strength`、`p2_cut`、`gb_core_strength`、`p2_core_cut`、`gb_strict_core_strength`、`p2_strict_core_cut`。若不存在会自动生成。 |
 | `thresholds/threshold_recommendations.json` | 与 `global_thresholds.json` 同步保存的推荐记录，方便人工复查。 |
 | `validation/verified_potential.json` | 自动生成。迁移到相似项目时，如果 GB 参数、拓扑排除、dump schema、代码 fingerprint 匹配，就可跳过验证。 |
 

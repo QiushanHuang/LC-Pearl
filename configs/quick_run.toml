@@ -49,6 +49,13 @@ workers = "auto"
 every = 1
 n_min = 3
 s_excl = 1
+# Core-tier visualization gates. These values are normally filled by
+# threshold_prior before analysis; fallbacks are used only without prior.
+p2_core_cut = 0.71
+gb_core_strength = 0.70
+p2_strict_core_cut = 0.80
+gb_strict_core_strength = 0.90
 edge_diagnostics_table = "off"
 edge_diagnostics_sample_size = 200000
+accepted_edge_audit = false
 write_frame_jsonl = false

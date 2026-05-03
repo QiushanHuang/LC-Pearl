@@ -1,6 +1,6 @@
 [project]
 name = "lc-pearl"
-version = "1.0.0"
+version = "2.1.0"
 description = "LC-Pearl: liquid-crystal domain and pearl-necklace analysis pipeline for LAMMPS dump trajectories."
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
@@ -19,8 +19,12 @@ py-modules = ["lc_pearl_cli", "lc_pearl_here"]
 [tool.setuptools.data-files]
 "share/lc-pearl" = [
   "README.md",
+  "MANUAL.md",
   "VERSION",
   "RELEASE_NOTES_v1.0.0.md",
+  "RELEASE_NOTES_v2.0.0.md",
+  "RELEASE_NOTES_v2.0.1.md",
+  "RELEASE_NOTES_v2.1.0.md",
   "CITATION.cff",
   "LICENSE",
   "CONTRIBUTORS.md",
@@ -53,12 +57,14 @@ py-modules = ["lc_pearl_cli", "lc_pearl_here"]
   "docs/lc_pearl_user_guide.html",
   "docs/lc_domain_pearl_v2_algorithm_reference.html",
   "docs/lc_pearl_v2_user_guide.html",
+  "docs/LC_Pearl_v2.1_Academic_User_Manual.md",
 ]
 "share/lc-pearl/scripts" = [
   "scripts/gb_pair_audit.py",
   "scripts/lammps_pairlocal_compare.py",
   "scripts/lc_calibrate_thresholds.py",
   "scripts/lc_domain_pearl_pipeline.py",
+  "scripts/lc_domain_size_counts.py",
   "scripts/lc_lammps_run0_validate.py",
   "scripts/lc_ovito_basic_merge.py",
   "scripts/lc_sampling_manifest.py",

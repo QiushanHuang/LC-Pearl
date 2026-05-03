@@ -37,7 +37,7 @@
 <main>
   <header>
     <h1>LC Domain-Pearl V2 算法与参数说明</h1>
-    <p class="lead">V2 的核心改变是把“阈值推荐先验”拆成独立、可迁移、可缓存的 streaming 模块：先用全局统计或项目级代表统计确定 <code>gb_off/gb_on/p2_cut</code>，再用这些参数正式生成 domain、pearl 和 OVITO label。这样避免 V1 中“先用默认值分析，分析后才推荐阈值”的逻辑错位。</p>
+    <p class="lead">V2.1.0 的核心改变是把“阈值推荐先验”拆成独立、可迁移、可缓存的 streaming 模块：先用全局统计或项目级代表统计确定 <code>gb_off/gb_on/p2_cut</code>，并额外给出 diagnostic <code>gb_core/p2_core</code> core-shoulder 层和 <code>gb_strict_core/p2_strict_core</code> strict-core 层，再用这些参数正式生成 domain、pearl 和 OVITO label。这样避免 V1 中“先用默认值分析，分析后才推荐阈值”的逻辑错位。</p>
     <p><span class="tag">名称：LC/Ic Domain Pearl V2</span><span class="tag">日期：2026-04-30</span><span class="tag">主定义：3D bead pearl</span><span class="tag">阈值：pre-analysis prior</span></p>
   </header>
   <section>
@@ -50,8 +50,8 @@
       <div><b>Diagnostics</b>输出 edge/domain/pearl 候选表、图、参数来源和 run summary。</div>
       <div><b>OVITO</b>输出带 <code>lc_*</code> label 的 dump，用颜色审查聚集体和边界误差。</div>
     </div>
-    <div class="ok"><b>V2 默认顺序：</b><code>threshold_prior.mode="auto"</code> 时，如果 <code>lc_pearl_preflight/thresholds/global_thresholds.json</code> 存在且 fingerprint 匹配，并且 GB potential 已验证，才会应用；如果不存在，先运行 <code>lc_threshold_prior.py</code> 生成，再按 confidence gate 决定是否应用；然后才跑正式 domain/pearl 分析。</div>
-    <div class="warn"><b>先验不是物理相边界：</b>V2 threshold prior 是对 attractive candidate pairs 的 <code>GB strength × P2</code> 统计分布做 GMM/KDE 与 2D gate 选择，属于数据驱动分析参数，不是新的 potential，也不是相变判据。</div>
+    <div class="ok"><b>V2 默认顺序：</b><code>threshold_prior.mode="auto"</code> 时，如果 <code>lc_pearl_preflight/thresholds/global_thresholds.json</code> 存在且 fingerprint 匹配，并且 GB potential 已验证，才会应用；如果不存在，先运行 <code>lc_threshold_prior.py</code> 生成；然后才跑正式 domain/pearl 分析。v2.1.0 的 <code>gb_core/p2_core</code> 与 <code>gb_strict_core/p2_strict_core</code> 只作为核心接触审查层，不改变 domain/pearl 主定义。</div>
+    <div class="warn"><b>先验不是物理相边界：</b>V2 threshold prior 是对 attractive candidate pairs 的 <code>GB strength × P2</code> streaming 直方图做 two-lobe valley/shoulder 选择，属于数据驱动分析参数，不是新的 potential，也不是相变判据。</div>
 
     <h2>2. 分析对象</h2>
     <table>
@@ -82,7 +82,7 @@
       <tr><td><code>global_frame_budget</code></td><td><code>0</code></td><td>0 表示所有帧都进入 streaming 统计；正数表示在全局 frame 序列上按 seeded stride 抽代表帧。V2 会先统计所有 dump 的真实 frame 数，而不是每个文件各抽 48 帧。具体选中帧写入 <code>selected_frame_manifest.tsv</code>。</td></tr>
       <tr><td><code>every</code></td><td><code>1</code></td><td>单个 dump 文件内部的帧间隔。若每个 dump 只有一帧，<code>every=10</code> 不会跳过文件；应使用 <code>global_frame_stride=10</code>。</td></tr>
       <tr><td><code>gb_bins/p2_bins</code></td><td><code>120/120</code></td><td>2D 直方图分辨率。</td></tr>
-      <tr><td><code>gb_strength_max</code></td><td><code>1.5</code></td><td>不是单纯绘图范围，而是 streaming histogram 的 GB strength 上限。超过范围的权重会记录在 <code>out_of_hist_range_pair_fraction</code>；比例过高时不会自动 apply，需增大上限后重建 prior。</td></tr>
+      <tr><td><code>gb_strength_max</code></td><td><code>1.5</code></td><td>不是单纯绘图范围，而是 streaming histogram 的 GB strength 上限。超过范围的权重会记录在 <code>out_of_hist_range_pair_fraction</code>；当前实现会写出 warning 供人工审查，但不会单独用这个比例阻止 apply。若比例过高，应增大上限后重建 prior。</td></tr>
       <tr><td><code>audit_example_pairs</code></td><td><code>5000</code></td><td>只保留这些代表 pair 作为审查样本，不影响直方图全局统计。</td></tr>
       <tr><td><code>workers</code></td><td><code>auto</code></td><td>多进程按文件并行处理；大目录会显著加速。</td></tr>
     </table>
@@ -101,9 +101,13 @@
     <h2>5. 阈值选择算法</h2>
     <table>
       <tr><th>阈值</th><th>算法来源</th><th>解释</th></tr>
-      <tr><td><code>p2_cut</code></td><td>先对 P2 边际分布做 GMM/KDE valley，再由 2D joint gate 检查支持量。</td><td>区分取向随机/弱一致/强一致。默认 clamp 到 0.50-0.90，避免统计噪声给出不物理的切点。</td></tr>
-      <tr><td><code>gb_off</code></td><td>在通过取向 gate 的 pair 上估计弱吸引与背景边界，再由 2D joint 可行性调整。</td><td>gray edge 下限。太低会把远处弱吸引或噪声连起来；太高会漏掉边界 mesogen。</td></tr>
-      <tr><td><code>gb_on</code></td><td>在取向 pair 上估计强吸引边界，并强制 <code>gb_on &gt; gb_off</code>。</td><td>strong edge 下限。用于 seed domain 的强证据。</td></tr>
+      <tr><td><code>p2_cut</code></td><td>对 streaming P2 边际直方图找 two-lobe valley；若统计不清楚，回退到 weighted median；最后 clamp 到 <code>0.50-0.75</code>。</td><td>区分取向随机/弱一致/强一致，避免统计噪声给出过低或过高的取向 gate。</td></tr>
+      <tr><td><code>gb_off</code></td><td>在通过 <code>p2_cut</code> 的 high-P2 pair 上取弱接触 lobe 的保守 shoulder，作为 gray/support contact 下限。</td><td>太低会把远处弱吸引或噪声连起来；太高会漏掉边界 mesogen。</td></tr>
+      <tr><td><code>gb_on</code></td><td>在 high-P2 GB 直方图上用 two-lobe valley 分开 weak-contact lobe 与 strong-attraction lobe；若 lobe 不清楚，使用 weighted quantile fallback，并强制 <code>gb_on &gt; gb_off</code>。</td><td>strong edge 下限。用于 seed domain 的强证据。</td></tr>
+      <tr><td><code>p2_core = 0.71</code></td><td>固定 core-shoulder pair alignment gate，等价于 <code>|u_i·u_j| &gt; 0.898</code>，约小于 26° 的平行/反平行偏差。</td><td>只用于 core-shoulder contact 可视化和统计，不改变 robust-domain 或 pearl 判定。</td></tr>
+      <tr><td><code>gb_core</code></td><td>在 <code>P2 &gt; 0.71</code> 且 <code>GB ≥ gb_on</code> 的强取向强吸引 lobe 中取左侧 shoulder；若没有足够 high-P2 strong-lobe 权重，则回退到 <code>max(current_gb_core, gb_on)</code> 并标记低可信。</td><td>标记强接触团的 core shoulder。它是“核心证据层”，不是新的 domain seed 阈值。</td></tr>
+      <tr><td><code>p2_strict_core = 0.80</code></td><td>固定 strict-core pair alignment gate，等价于更接近平行/反平行的取向要求。</td><td>只用于最强核心接触可视化和统计。</td></tr>
+      <tr><td><code>gb_strict_core</code></td><td>在 <code>P2 &gt; 0.80</code> 且 <code>GB ≥ gb_on</code> 的高取向强接触团中取 weighted q25，并强制 <code>gb_strict_core ≥ gb_core</code>。</td><td>标记更严格的 strong core 子集，不改变 domain/pearl 主判定。</td></tr>
       <tr><td><code>robust_min_s2</code></td><td>当前仍主要由配置/diagnostics 审查，不由 prior 自动覆盖。</td><td>domain 内部取向一致性阈值。它依赖 domain 结果而不是 pair prior，V2 暂不把它和 pair 阈值强行耦合。</td></tr>
       <tr><td><code>pearl_gap_cut</code> 等 pearl 参数</td><td>recommend-only，由 pearl candidate diagnostics 估计。</td><td>pearl 需要 3D gap、跨域接触、边界支持、aspect ratio 同时审查，目前不自动 apply。</td></tr>
     </table>
@@ -133,11 +137,12 @@
     <table>
       <tr><th>文件</th><th>用途</th><th>可靠性检查</th></tr>
       <tr><td><code>lc_pearl_preflight/thresholds/global_thresholds.json</code></td><td>V2 阈值先验缓存，可迁移到相同 potential/相似体系，但“相似体系”仍需要科研判断。</td><td>在该文件看 <code>calibration_status</code>、<code>apply_allowed</code>、<code>input_provenance</code>、<code>streaming.selected_frame_count_total</code>、<code>out_of_hist_range_pair_fraction</code>；是否真的用于本次主分析要看 <code>run_summary.json</code> 的 <code>threshold_prior.applied</code>。</td></tr>
-      <tr><td><code>stream_hist_2d_gb_p2.tsv</code> / <code>gb_strength_vs_p2_stream_hist.png</code></td><td>阈值先验的核心统计证据。</td><td>图上会标出 <code>gb_off/gb_on/p2_cut</code> 的具体数值；需要确认强区、灰区、背景区不是完全混成一片。</td></tr>
+      <tr><td><code>stream_hist_2d_gb_p2.tsv</code> / <code>gb_strength_vs_p2_stream_hist.png</code> / <code>gb_strength_vs_p2_stream_dotgrid.png</code> / <code>gb_strength_vs_p2_stream_hexbin.png</code></td><td>阈值先验的核心统计证据。</td><td>热图、方格点阵图和 hexbin 图都会标出 <code>gb_off/gb_on/p2_cut/gb_core/p2_core/gb_strict/p2_strict</code> 的具体数值；需要确认背景、过渡、聚集、强聚集区域不是完全混成一片。</td></tr>
+      <tr><td><code>lobe_split_preview/gb_core_slice_hist.png</code></td><td><code>P2 &gt; 0.71</code> 和 <code>P2 &gt; 0.80</code> 的 GB 一维切片。</td><td>用于检查 <code>gb_core</code> 为什么落在 core shoulder，以及 <code>gb_strict_core</code> 为什么落在更强核心子集。</td></tr>
       <tr><td><code>aggregation_timeseries.tsv</code></td><td>正式定量结果。</td><td>看 <code>N_domain(t)</code>、<code>N_pearl(t)</code>、largest fractions、<code>L_parallel</code> 与 force/temperature 的趋势。</td></tr>
       <tr><td><code>diagnostics/domain_diagnostics.tsv</code></td><td>domain 级审查。</td><td>看 robust domain 是否确实有足够 size、S2、nonlocal 支持。</td></tr>
       <tr><td><code>diagnostics/pearl_candidate_diagnostics.tsv</code></td><td>pearl 合并/拒绝原因。</td><td>看被合并的 domains 是否符合 gap、contacts、boundary、aspect ratio。</td></tr>
-      <tr><td><code>per_file/*_lc_labels.dump</code></td><td>OVITO 可视化。</td><td>用 <code>lc_domain</code>、<code>lc_pearl</code>、<code>lc_state</code>、<code>lc_cluster</code> 逐帧肉眼审查。</td></tr>
+      <tr><td><code>per_file/*_lc_labels.dump</code></td><td>OVITO 可视化。</td><td>用 <code>lc_aggregation_tier</code> 快速看无接触/过渡/聚集/core/strict core；用 <code>lc_domain</code>、<code>lc_pearl</code>、<code>lc_state</code>、<code>lc_cluster</code> 逐帧肉眼审查；用 <code>lc_core_contact_degree</code> 看 core shoulder，用 <code>lc_strict_core_contact_degree</code> 看最强核心接触。</td></tr>
     </table>
   </section>
 </main>

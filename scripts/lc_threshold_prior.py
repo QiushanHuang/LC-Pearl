@@ -20,13 +20,19 @@ import liquid_crystal_aggregation as lca
 from lc_threshold_recommend import annotate_hline, annotate_vline, threshold_label
 
 
-SCHEMA_VERSION = 5
-METHOD_NAME = "LC Domain-Pearl V2 2D lobe streaming threshold prior"
+SCHEMA_VERSION = 7
+METHOD_NAME = "LC-Pearl 2.1.0 core-tier streaming threshold prior"
 DEFAULT_GB_BINS = 120
 DEFAULT_P2_BINS = 120
 DEFAULT_MAX_AUTO_WORKERS = 10
 DEFAULT_FILE_CHUNK_SIZE = 500
 DEFAULT_MAX_BLOCK_HISTOGRAMS = 256
+DEFAULT_P2_CORE_CUT = 0.71
+DEFAULT_GB_CORE_STRENGTH = 0.70
+DEFAULT_P2_STRICT_CORE_CUT = 0.80
+DEFAULT_GB_STRICT_CORE_STRENGTH = 0.90
+DEFAULT_CORE_SHOULDER_FRACTION = 0.35
+DEFAULT_CORE_QUANTILE = 0.25
 FRAME_SUMMARY_COLUMNS = [
     "source_file",
     "candidate_frames",
@@ -245,6 +251,188 @@ def weighted_quantile_from_hist(centers: np.ndarray, counts: np.ndarray, quantil
     return float(x[min(idx, x.size - 1)])
 
 
+def nearest_index(centers: np.ndarray, value: float) -> int:
+    x = np.asarray(centers, dtype=float)
+    if x.size == 0:
+        return 0
+    return int(np.argmin(np.abs(x - float(value))))
+
+
+def estimate_core_gb_threshold(
+    *,
+    gb_centers: np.ndarray,
+    p2_centers: np.ndarray,
+    hist2d: np.ndarray,
+    gb_on: float,
+    p2_core_cut: float,
+    current_gb_core: float,
+    shoulder_fraction: float = DEFAULT_CORE_SHOULDER_FRACTION,
+    fallback_quantile: float = DEFAULT_CORE_QUANTILE,
+) -> Dict[str, object]:
+    """Estimate the core-shoulder GB cut inside the high-P2 strong lobe.
+
+    The core-shoulder cut is intentionally diagnostic-only. It marks the
+    left-side onset of the high-P2 strong-contact lobe without changing the
+    seed graph used for domain/pearl construction.
+    """
+    gb = np.asarray(gb_centers, dtype=float)
+    p2 = np.asarray(p2_centers, dtype=float)
+    hist = np.asarray(hist2d, dtype=float)
+    p2_mask = p2 >= float(p2_core_cut)
+    if gb.size == 0 or p2.size == 0 or hist.size == 0 or not np.any(p2_mask):
+        fallback = max(float(current_gb_core), float(gb_on))
+        return {
+            "estimate": float(fallback),
+            "decision": "fallback_current_core_threshold",
+            "available": False,
+            "reason": "empty_or_missing_p2_core_slice",
+            "p2_core_cut": float(p2_core_cut),
+            "weighted_pair_rows": 0.0,
+        }
+
+    core_counts = hist[:, p2_mask].sum(axis=1)
+    strong_mask = (gb >= float(gb_on)) & np.isfinite(core_counts) & (core_counts > 0.0)
+    strong_weight = float(np.sum(core_counts[strong_mask]))
+    if strong_weight <= 0.0:
+        fallback = max(float(current_gb_core), float(gb_on))
+        return {
+            "estimate": float(fallback),
+            "decision": "fallback_current_core_threshold",
+            "available": False,
+            "reason": "no_high_p2_strong_lobe_weight",
+            "p2_core_cut": float(p2_core_cut),
+            "weighted_pair_rows": 0.0,
+        }
+
+    smooth_log = smooth_1d(np.log10(np.maximum(core_counts, 0.0) + 1.0), window=5)
+    strong_indices = np.where(strong_mask)[0]
+    peak_idx = int(strong_indices[np.argmax(smooth_log[strong_indices])])
+    start_idx = nearest_index(gb, float(gb_on))
+    if gb[start_idx] < float(gb_on):
+        later = np.where(gb >= float(gb_on))[0]
+        if later.size:
+            start_idx = int(later[0])
+
+    shoulder = float("nan")
+    shoulder_idx = -1
+    if peak_idx > start_idx:
+        span = np.arange(start_idx, peak_idx + 1, dtype=int)
+        baseline = float(np.min(smooth_log[span]))
+        peak_level = float(smooth_log[peak_idx])
+        if peak_level > baseline:
+            target = baseline + float(shoulder_fraction) * (peak_level - baseline)
+            candidates = span[(smooth_log[span] >= target) & (core_counts[span] > 0.0)]
+            if candidates.size:
+                shoulder_idx = int(candidates[0])
+                shoulder = float(gb[shoulder_idx])
+
+    q_core = weighted_quantile_from_hist(gb[strong_mask], core_counts[strong_mask], fallback_quantile)
+    q50 = weighted_quantile_from_hist(gb[strong_mask], core_counts[strong_mask], 0.50)
+    q75 = weighted_quantile_from_hist(gb[strong_mask], core_counts[strong_mask], 0.75)
+    if math.isfinite(shoulder):
+        gb_core = max(float(gb_on), float(shoulder))
+        decision = "high_p2_core_shoulder_left_shoulder"
+    elif math.isfinite(q_core):
+        gb_core = max(float(gb_on), float(q_core))
+        decision = "fallback_high_p2_core_shoulder_weighted_q25"
+    else:
+        gb_core = max(float(gb_on), float(current_gb_core), q_core if math.isfinite(q_core) else float(gb_on))
+        decision = "fallback_current_core_shoulder_threshold"
+    bin_width = float(np.median(np.diff(gb))) if gb.size > 1 else 0.01
+    if gb_core <= float(gb_on):
+        gb_core = min(float(gb[-1]), float(gb_on) + max(bin_width, 0.01))
+
+    return {
+        "estimate": float(gb_core),
+        "decision": decision,
+        "available": True,
+        "p2_core_cut": float(p2_core_cut),
+        "q_score_core_cut": float(math.sqrt(max(0.0, (2.0 * float(p2_core_cut) + 1.0) / 3.0))),
+        "angle_degrees_from_parallel": float(math.degrees(math.acos(min(1.0, math.sqrt(max(0.0, (2.0 * float(p2_core_cut) + 1.0) / 3.0)))))),
+        "strong_lobe_peak": float(gb[peak_idx]),
+        "strong_lobe_peak_count": float(core_counts[peak_idx]),
+        "left_shoulder": float(shoulder) if math.isfinite(shoulder) else None,
+        "left_shoulder_index": int(shoulder_idx),
+        "shoulder_fraction_of_log_peak_rise": float(shoulder_fraction),
+        "fallback_quantile": float(fallback_quantile),
+        "weighted_q25": float(q_core) if math.isfinite(q_core) else None,
+        "weighted_q50": float(q50) if math.isfinite(q50) else None,
+        "weighted_q75": float(q75) if math.isfinite(q75) else None,
+        "weighted_pair_rows": float(round(strong_weight, 6)),
+    }
+
+
+def estimate_strict_core_gb_threshold(
+    *,
+    gb_centers: np.ndarray,
+    p2_centers: np.ndarray,
+    hist2d: np.ndarray,
+    gb_on: float,
+    gb_core: float,
+    p2_strict_core_cut: float,
+    current_gb_strict_core: float,
+    strict_quantile: float = DEFAULT_CORE_QUANTILE,
+) -> Dict[str, object]:
+    """Estimate the strict-core GB cut from the high-P2 strong-contact lobe."""
+    gb = np.asarray(gb_centers, dtype=float)
+    p2 = np.asarray(p2_centers, dtype=float)
+    hist = np.asarray(hist2d, dtype=float)
+    p2_mask = p2 >= float(p2_strict_core_cut)
+    if gb.size == 0 or p2.size == 0 or hist.size == 0 or not np.any(p2_mask):
+        fallback = max(float(current_gb_strict_core), float(gb_core), float(gb_on))
+        return {
+            "estimate": float(fallback),
+            "decision": "fallback_current_strict_core_threshold",
+            "available": False,
+            "reason": "empty_or_missing_p2_strict_core_slice",
+            "p2_strict_core_cut": float(p2_strict_core_cut),
+            "weighted_pair_rows": 0.0,
+        }
+
+    strict_counts = hist[:, p2_mask].sum(axis=1)
+    strong_mask = (gb >= float(gb_on)) & np.isfinite(strict_counts) & (strict_counts > 0.0)
+    strong_weight = float(np.sum(strict_counts[strong_mask]))
+    if strong_weight <= 0.0:
+        fallback = max(float(current_gb_strict_core), float(gb_core), float(gb_on))
+        return {
+            "estimate": float(fallback),
+            "decision": "fallback_current_strict_core_threshold",
+            "available": False,
+            "reason": "no_high_p2_strict_core_lobe_weight",
+            "p2_strict_core_cut": float(p2_strict_core_cut),
+            "weighted_pair_rows": 0.0,
+        }
+
+    q_strict = weighted_quantile_from_hist(gb[strong_mask], strict_counts[strong_mask], strict_quantile)
+    q50 = weighted_quantile_from_hist(gb[strong_mask], strict_counts[strong_mask], 0.50)
+    q75 = weighted_quantile_from_hist(gb[strong_mask], strict_counts[strong_mask], 0.75)
+    if math.isfinite(q_strict):
+        gb_strict = max(float(gb_core), float(q_strict))
+        decision = "high_p2_strict_core_weighted_q25"
+    else:
+        gb_strict = max(float(current_gb_strict_core), float(gb_core), float(gb_on))
+        decision = "fallback_current_strict_core_threshold"
+    bin_width = float(np.median(np.diff(gb))) if gb.size > 1 else 0.01
+    if gb_strict <= float(gb_core):
+        gb_strict = min(float(gb[-1]), float(gb_core) + max(bin_width, 0.01))
+        decision += "_bounded_above_core_shoulder"
+
+    return {
+        "estimate": float(gb_strict),
+        "decision": decision,
+        "available": True,
+        "p2_strict_core_cut": float(p2_strict_core_cut),
+        "q_score_strict_core_cut": float(math.sqrt(max(0.0, (2.0 * float(p2_strict_core_cut) + 1.0) / 3.0))),
+        "angle_degrees_from_parallel": float(math.degrees(math.acos(min(1.0, math.sqrt(max(0.0, (2.0 * float(p2_strict_core_cut) + 1.0) / 3.0)))))),
+        "strict_quantile": float(strict_quantile),
+        "weighted_q25": float(q_strict) if math.isfinite(q_strict) else None,
+        "weighted_q50": float(q50) if math.isfinite(q50) else None,
+        "weighted_q75": float(q75) if math.isfinite(q75) else None,
+        "weighted_pair_rows": float(round(strong_weight, 6)),
+        "classification_impact": "diagnostic_only",
+    }
+
+
 def strongest_two_lobe_valley(
     centers: np.ndarray,
     counts: np.ndarray,
@@ -308,6 +496,10 @@ def estimate_lobe_thresholds_from_histograms(
         "gb_off_strength": float(current["gb_off_strength"]),
         "gb_on_strength": float(current["gb_on_strength"]),
         "p2_cut": float(current["p2_cut"]),
+        "gb_core_strength": float(current.get("gb_core_strength", max(DEFAULT_GB_CORE_STRENGTH, float(current["gb_on_strength"])))),
+        "p2_core_cut": float(current.get("p2_core_cut", DEFAULT_P2_CORE_CUT)),
+        "gb_strict_core_strength": float(current.get("gb_strict_core_strength", max(DEFAULT_GB_STRICT_CORE_STRENGTH, float(current.get("gb_core_strength", DEFAULT_GB_CORE_STRENGTH))))),
+        "p2_strict_core_cut": float(current.get("p2_strict_core_cut", DEFAULT_P2_STRICT_CORE_CUT)),
     }
     if total_weight <= 0.0:
         return {
@@ -375,6 +567,33 @@ def estimate_lobe_thresholds_from_histograms(
     if gb_on <= gb_off:
         gb_on = min(float(gb_edges[-1]), gb_off + 0.02)
 
+    p2_core_cut = DEFAULT_P2_CORE_CUT
+    p2_strict_core_cut = DEFAULT_P2_STRICT_CORE_CUT
+    core_detail = estimate_core_gb_threshold(
+        gb_centers=gb_centers,
+        p2_centers=p2_centers,
+        hist2d=hist,
+        gb_on=float(gb_on),
+        p2_core_cut=p2_core_cut,
+        current_gb_core=float(current_clean["gb_core_strength"]),
+    )
+    gb_core = float(core_detail["estimate"])
+    if gb_core <= gb_on:
+        bin_width = float(np.median(np.diff(gb_centers))) if gb_centers.size > 1 else 0.01
+        gb_core = min(float(gb_edges[-1]), float(gb_on) + max(bin_width, 0.01))
+        core_detail["estimate"] = float(gb_core)
+        core_detail["decision"] = str(core_detail.get("decision", "core_threshold")) + "_bounded_above_gb_on"
+    strict_core_detail = estimate_strict_core_gb_threshold(
+        gb_centers=gb_centers,
+        p2_centers=p2_centers,
+        hist2d=hist,
+        gb_on=float(gb_on),
+        gb_core=float(gb_core),
+        p2_strict_core_cut=p2_strict_core_cut,
+        current_gb_strict_core=float(current_clean["gb_strict_core_strength"]),
+    )
+    gb_strict_core = float(strict_core_detail["estimate"])
+
     contrast = float(gb_valley_detail.get("valley_contrast", 0.0)) if isinstance(gb_valley_detail, dict) else 0.0
     status = "high" if total_weight >= float(min_pairs) and contrast >= 50.0 else "medium" if total_weight >= float(min_pairs) and contrast >= 5.0 else "low"
     apply_allowed = bool(gb_on > gb_off)
@@ -385,6 +604,10 @@ def estimate_lobe_thresholds_from_histograms(
         "gb_off_strength": cal.rounded(float(gb_off)),
         "gb_on_strength": cal.rounded(float(gb_on)),
         "p2_cut": cal.rounded(float(p2_cut)),
+        "gb_core_strength": cal.rounded(float(gb_core)),
+        "p2_core_cut": cal.rounded(float(p2_core_cut)),
+        "gb_strict_core_strength": cal.rounded(float(gb_strict_core)),
+        "p2_strict_core_cut": cal.rounded(float(p2_strict_core_cut)),
     }
     return {
         "calibration_status": status,
@@ -413,28 +636,60 @@ def estimate_lobe_thresholds_from_histograms(
                 "decision": "left_lobe_q99_shoulder_bounded_below_gb_on",
                 "left_lobe_q99_shoulder": float(shoulder),
             },
+            "gb_core_strength": {
+                **core_detail,
+                "tier_name": "core_shoulder",
+                "classification_impact": "diagnostic_only",
+            },
+            "p2_core_cut": {
+                "estimate": float(p2_core_cut),
+                "decision": "fixed_core_shoulder_pair_alignment_gate",
+                "q_score_cut": float(math.sqrt(max(0.0, (2.0 * float(p2_core_cut) + 1.0) / 3.0))),
+                "angle_degrees_from_parallel": float(math.degrees(math.acos(min(1.0, math.sqrt(max(0.0, (2.0 * float(p2_core_cut) + 1.0) / 3.0)))))),
+                "classification_impact": "diagnostic_only",
+            },
+            "gb_strict_core_strength": {
+                **strict_core_detail,
+                "tier_name": "strict_core",
+                "classification_impact": "diagnostic_only",
+            },
+            "p2_strict_core_cut": {
+                "estimate": float(p2_strict_core_cut),
+                "decision": "fixed_strict_core_pair_alignment_gate",
+                "q_score_cut": float(math.sqrt(max(0.0, (2.0 * float(p2_strict_core_cut) + 1.0) / 3.0))),
+                "angle_degrees_from_parallel": float(math.degrees(math.acos(min(1.0, math.sqrt(max(0.0, (2.0 * float(p2_strict_core_cut) + 1.0) / 3.0)))))),
+                "classification_impact": "diagnostic_only",
+            },
         },
         "parameter_confidence": {
             "gb_off_strength": status,
             "gb_on_strength": status,
             "p2_cut": "medium" if bool(p2_valley_detail.get("available")) else "low",
+            "gb_core_strength": status if bool(core_detail.get("available")) else "low",
+            "p2_core_cut": "fixed",
+            "gb_strict_core_strength": status if bool(strict_core_detail.get("available")) else "low",
+            "p2_strict_core_cut": "fixed",
             "joint2d": status,
         },
         "joint_2d": {
             "status": status,
-            "method": "direct_2d_lobe_split_from_stream_histogram",
+            "method": "direct_2d_lobe_split_from_stream_histogram_with_core_shoulder_and_strict_core_tiers",
             "selected": recommended,
         },
         "sample_sizes": {
             "nonzero_histogram_cells": int(np.count_nonzero(hist > 0.0)),
             "weighted_pair_rows": float(round(total_weight, 6)),
             "high_p2_weighted_pair_rows": float(round(float(np.sum(gb_counts)), 6)),
+            "core_high_p2_strong_weighted_pair_rows": float(core_detail.get("weighted_pair_rows", 0.0)),
+            "strict_core_high_p2_strong_weighted_pair_rows": float(strict_core_detail.get("weighted_pair_rows", 0.0)),
         },
         "warnings": warnings,
         "notes": [
             "Thresholds were selected from the full streaming GB-strength x P2 histogram.",
             "gb_on is the high-P2 GB-strength valley between the weak-contact lobe and the strong-attraction lobe.",
             "gb_off is a conservative left-lobe shoulder for gray/support contacts, not the main robust-domain boundary.",
+            "gb_core/p2_core mark the high-P2 strong-lobe core shoulder for visualization and audit only; they do not change the domain/pearl seed graph.",
+            "gb_strict_core/p2_strict_core mark a stricter high-P2 weighted-q25 core subset for visualization and audit only.",
             "apply_allowed now means only that recommended thresholds are numerically usable; low/medium/high status is descriptive, not a time/block gate.",
         ],
     }
@@ -468,26 +723,82 @@ def draw_threshold_lines(ax, recommended: Dict[str, object]) -> None:
     annotate_vline(ax, float(recommended["gb_off_strength"]), threshold_label("gb_off", recommended["gb_off_strength"]), color="#f59e0b")
     annotate_vline(ax, float(recommended["gb_on_strength"]), threshold_label("gb_on", recommended["gb_on_strength"]), color="#ef4444", ymax=0.82)
     annotate_hline(ax, float(recommended["p2_cut"]), threshold_label("p2_cut", recommended["p2_cut"]), color="#38bdf8")
+    if "gb_core_strength" in recommended:
+        annotate_vline(ax, float(recommended["gb_core_strength"]), threshold_label("gb_core", recommended["gb_core_strength"]), color="#d946ef", ymax=0.72)
+    if "p2_core_cut" in recommended:
+        annotate_hline(ax, float(recommended["p2_core_cut"]), threshold_label("p2_core", recommended["p2_core_cut"]), color="#22c55e")
+    if "gb_strict_core_strength" in recommended:
+        annotate_vline(ax, float(recommended["gb_strict_core_strength"]), threshold_label("gb_strict", recommended["gb_strict_core_strength"]), color="#7c3aed", ymax=0.62)
+    if "p2_strict_core_cut" in recommended:
+        annotate_hline(ax, float(recommended["p2_strict_core_cut"]), threshold_label("p2_strict", recommended["p2_strict_core_cut"]), color="#16a34a", lw=1.2)
+
+
+def draw_gb_threshold_lines(ax, recommended: Dict[str, object]) -> None:
+    if not recommended:
+        return
+    annotate_vline(ax, float(recommended["gb_off_strength"]), threshold_label("gb_off", recommended["gb_off_strength"]), color="#f59e0b")
+    annotate_vline(ax, float(recommended["gb_on_strength"]), threshold_label("gb_on", recommended["gb_on_strength"]), color="#ef4444", ymax=0.82)
+    if "gb_core_strength" in recommended:
+        annotate_vline(ax, float(recommended["gb_core_strength"]), threshold_label("gb_core", recommended["gb_core_strength"]), color="#d946ef", ymax=0.72)
+    if "gb_strict_core_strength" in recommended:
+        annotate_vline(ax, float(recommended["gb_strict_core_strength"]), threshold_label("gb_strict", recommended["gb_strict_core_strength"]), color="#7c3aed", ymax=0.62)
+
+
+def nonzero_gb_xlim(gb_edges: np.ndarray, hist2d: np.ndarray) -> Tuple[float, float]:
+    """Return the plotted GB range, cropping empty high-GB histogram tail bins."""
+    occupied_gb_bins = np.flatnonzero(np.asarray(hist2d).sum(axis=1) > 0.0)
+    if occupied_gb_bins.size == 0:
+        return float(gb_edges[0]), float(gb_edges[-1])
+    upper_idx = int(occupied_gb_bins[-1]) + 1
+    return float(gb_edges[0]), float(gb_edges[min(upper_idx, len(gb_edges) - 1)])
 
 
 def draw_stream_dotgrid(ax, gb_edges: np.ndarray, p2_edges: np.ndarray, hist2d: np.ndarray, *, title: str):
-    gb_centers = 0.5 * (gb_edges[:-1] + gb_edges[1:])
-    p2_centers = 0.5 * (p2_edges[:-1] + p2_edges[1:])
-    gi, pi = np.nonzero(hist2d > 0.0)
-    values = np.log10(hist2d[gi, pi] + 1.0)
-    scatter = ax.scatter(
-        gb_centers[gi],
-        p2_centers[pi],
-        c=values,
-        s=18,
-        marker="s",
-        linewidths=0.0,
+    values = np.ma.masked_where(hist2d.T <= 0.0, np.log10(hist2d.T + 1.0))
+    mesh = ax.pcolormesh(
+        gb_edges,
+        p2_edges,
+        values,
         cmap="viridis",
+        shading="flat",
+        edgecolors="none",
+        linewidth=0.0,
+        antialiased=False,
+        rasterized=True,
     )
     ax.set_xlabel("GB attraction strength")
     ax.set_ylabel("pair P2")
     ax.set_title(title)
-    return scatter
+    x_lo, x_hi = nonzero_gb_xlim(gb_edges, hist2d)
+    ax.set_xlim(x_lo, x_hi)
+    ax.set_ylim(float(p2_edges[0]), float(p2_edges[-1]))
+    ax.set_facecolor("#f8fafc")
+    return mesh
+
+
+def draw_stream_hexbin(ax, gb_edges: np.ndarray, p2_edges: np.ndarray, hist2d: np.ndarray, *, title: str):
+    gb_centers = 0.5 * (gb_edges[:-1] + gb_edges[1:])
+    p2_centers = 0.5 * (p2_edges[:-1] + p2_edges[1:])
+    gi, pi = np.nonzero(hist2d > 0.0)
+    counts = hist2d[gi, pi]
+    hb = ax.hexbin(
+        gb_centers[gi],
+        p2_centers[pi],
+        C=counts,
+        reduce_C_function=np.sum,
+        gridsize=42,
+        mincnt=1,
+        bins="log",
+        cmap="viridis",
+        linewidths=0.0,
+    )
+    ax.set_xlabel("GB attraction strength")
+    ax.set_ylabel("pair P2")
+    ax.set_title(title)
+    ax.set_xlim(*nonzero_gb_xlim(gb_edges, hist2d))
+    ax.set_ylim(float(p2_edges[0]), float(p2_edges[-1]))
+    ax.set_facecolor("#f8fafc")
+    return hb
 
 
 def write_lobe_split_plots(output_dir: Path, gb_edges: np.ndarray, p2_edges: np.ndarray, hist2d: np.ndarray, recommendation: Dict[str, object]) -> None:
@@ -499,13 +810,15 @@ def write_lobe_split_plots(output_dir: Path, gb_edges: np.ndarray, p2_edges: np.
         (output_dir / "plot_error.txt").write_text(str(exc), encoding="utf-8")
         return
     output_dir.mkdir(parents=True, exist_ok=True)
+    preview_dir = output_dir / "lobe_split_preview"
+    preview_dir.mkdir(parents=True, exist_ok=True)
     recommended = recommendation.get("recommended", {})
     fig, ax = plt.subplots(figsize=(7.4, 5.4), dpi=180)
-    scatter = draw_stream_dotgrid(ax, gb_edges, p2_edges, hist2d, title="LC Domain-Pearl V2 2D lobe split")
+    scatter = draw_stream_dotgrid(ax, gb_edges, p2_edges, hist2d, title="LC-Pearl 2.1.0 2D lobe + core-tier split")
     draw_threshold_lines(ax, recommended)
     fig.colorbar(scatter, ax=ax, label="log10(weighted count + 1)")
     fig.tight_layout()
-    fig.savefig(output_dir / "gb_strength_vs_p2_stream_lobe_split_dotgrid.png")
+    fig.savefig(preview_dir / "gb_strength_vs_p2_stream_lobe_split_dotgrid.png")
     plt.close(fig)
 
     fig, axes = plt.subplots(1, 2, figsize=(13.8, 5.3), dpi=180)
@@ -514,13 +827,36 @@ def write_lobe_split_plots(output_dir: Path, gb_edges: np.ndarray, p2_edges: np.
     axes[0].set_xlabel("GB attraction strength")
     axes[0].set_ylabel("pair P2")
     axes[0].set_title("Full streaming histogram")
+    axes[0].set_xlim(*nonzero_gb_xlim(gb_edges, hist2d))
     scatter = draw_stream_dotgrid(axes[1], gb_edges, p2_edges, hist2d, title="Dot-grid view of same full histogram")
     draw_threshold_lines(axes[1], recommended)
     fig.colorbar(mesh, ax=axes[0], label="log10(weighted count + 1)")
     fig.colorbar(scatter, ax=axes[1], label="log10(weighted count + 1)")
     fig.tight_layout()
-    fig.savefig(output_dir / "gb_strength_vs_p2_stream_lobe_split_comparison.png")
+    fig.savefig(preview_dir / "gb_strength_vs_p2_stream_lobe_split_comparison.png")
     plt.close(fig)
+
+    if "p2_core_cut" in recommended:
+        gb_centers = 0.5 * (gb_edges[:-1] + gb_edges[1:])
+        p2_centers = 0.5 * (p2_edges[:-1] + p2_edges[1:])
+        core_mask = p2_centers >= float(recommended["p2_core_cut"])
+        core_counts = hist2d[:, core_mask].sum(axis=1)
+        fig, ax = plt.subplots(figsize=(7.4, 4.6), dpi=180)
+        ax.plot(gb_centers, core_counts, color="#2563eb", lw=1.4, label=f"core shoulder: P2 >= {float(recommended['p2_core_cut']):.3g}")
+        if "p2_strict_core_cut" in recommended:
+            strict_mask = p2_centers >= float(recommended["p2_strict_core_cut"])
+            strict_counts = hist2d[:, strict_mask].sum(axis=1)
+            ax.plot(gb_centers, strict_counts, color="#7c3aed", lw=1.2, label=f"strict core: P2 >= {float(recommended['p2_strict_core_cut']):.3g}")
+        ax.plot(gb_centers, smooth_1d(core_counts, window=5), color="#0f172a", lw=1.0, alpha=0.7, label="smoothed")
+        draw_threshold_lines(ax, recommended)
+        ax.set_xlabel("GB attraction strength")
+        ax.set_ylabel("weighted pair count")
+        ax.set_title("Core-tier GB slices used for gb_core and gb_strict")
+        ax.set_xlim(*nonzero_gb_xlim(gb_edges, hist2d))
+        ax.legend(frameon=False, loc="upper right")
+        fig.tight_layout()
+        fig.savefig(preview_dir / "gb_core_slice_hist.png")
+        plt.close(fig)
 
 
 def write_stream_plots(output_dir: Path, gb_edges: np.ndarray, p2_edges: np.ndarray, hist2d: np.ndarray, recommendation: Dict[str, object]) -> None:
@@ -532,15 +868,47 @@ def write_stream_plots(output_dir: Path, gb_edges: np.ndarray, p2_edges: np.ndar
         (output_dir / "plot_error.txt").write_text(str(exc), encoding="utf-8")
         return
     recommended = recommendation.get("recommended", {})
+    gb_centers = 0.5 * (gb_edges[:-1] + gb_edges[1:])
+    gb_counts = np.asarray(hist2d, dtype=float).sum(axis=1)
+    gb_widths = np.diff(gb_edges)
+    fig, ax = plt.subplots(figsize=(7.4, 4.4), dpi=180)
+    ax.bar(gb_centers, np.log10(gb_counts + 1.0), width=gb_widths, align="center", color="#2563eb", alpha=0.82, linewidth=0.0)
+    draw_gb_threshold_lines(ax, recommended)
+    ax.set_xlabel("GB attraction strength")
+    ax.set_ylabel("log10(weighted pair count + 1)")
+    ax.set_title("LC-Pearl 2.1.0 streaming GB strength histogram")
+    ax.set_xlim(*nonzero_gb_xlim(gb_edges, hist2d))
+    ax.legend(frameon=False, loc="upper right")
+    fig.tight_layout()
+    fig.savefig(output_dir / "gb_strength_hist.png")
+    plt.close(fig)
+
     fig, ax = plt.subplots(figsize=(7.4, 5.4), dpi=180)
     mesh = ax.pcolormesh(gb_edges, p2_edges, np.log10(hist2d.T + 1.0), cmap="viridis", shading="auto")
-    draw_threshold_lines(ax, recommended)
     ax.set_xlabel("GB attraction strength")
     ax.set_ylabel("pair P2")
-    ax.set_title("LC Domain-Pearl V2 streaming GB strength x P2 histogram")
+    ax.set_title("LC-Pearl 2.1.0 streaming GB strength x P2 histogram")
+    ax.set_xlim(*nonzero_gb_xlim(gb_edges, hist2d))
+    draw_threshold_lines(ax, recommended)
     fig.colorbar(mesh, ax=ax, label="log10(weighted count + 1)")
     fig.tight_layout()
     fig.savefig(output_dir / "gb_strength_vs_p2_stream_hist.png")
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(7.4, 5.4), dpi=180)
+    scatter = draw_stream_dotgrid(ax, gb_edges, p2_edges, hist2d, title="LC-Pearl 2.1.0 streaming GB strength x P2 dot-grid")
+    draw_threshold_lines(ax, recommended)
+    fig.colorbar(scatter, ax=ax, label="log10(weighted count + 1)")
+    fig.tight_layout()
+    fig.savefig(output_dir / "gb_strength_vs_p2_stream_dotgrid.png")
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(7.4, 5.4), dpi=180)
+    hb = draw_stream_hexbin(ax, gb_edges, p2_edges, hist2d, title="LC-Pearl 2.1.0 streaming GB strength x P2 hexbin")
+    draw_threshold_lines(ax, recommended)
+    fig.colorbar(hb, ax=ax, label="log10(weighted count + 1)")
+    fig.tight_layout()
+    fig.savefig(output_dir / "gb_strength_vs_p2_stream_hexbin.png")
     plt.close(fig)
     write_lobe_split_plots(output_dir, gb_edges, p2_edges, hist2d, recommendation)
 
@@ -635,9 +1003,9 @@ def run_chunk_jobs_bounded(
 def histogram_bin(edges: np.ndarray, value: float) -> Optional[int]:
     if not math.isfinite(value) or value < float(edges[0]) or value > float(edges[-1]):
         return None
-    if value == float(edges[-1]):
-        return int(edges.size - 2)
-    idx = int(np.searchsorted(edges, value, side="right") - 1)
+    if value == float(edges[0]):
+        return 0
+    idx = int(np.searchsorted(edges, value, side="left") - 1)
     if idx < 0 or idx >= edges.size - 1:
         return None
     return idx
@@ -1129,7 +1497,11 @@ def build_streaming_prior(args: argparse.Namespace) -> Dict[str, object]:
             "gb_off_strength": float(args.current_gb_off),
             "gb_on_strength": float(args.current_gb_on),
             "p2_cut": float(args.current_p2_cut),
-        },
+        "gb_core_strength": float(args.current_gb_core),
+        "p2_core_cut": float(args.current_p2_core_cut),
+        "gb_strict_core_strength": float(args.current_gb_strict_core),
+        "p2_strict_core_cut": float(args.current_p2_strict_core_cut),
+    },
         min_pairs=int(args.min_pairs),
         min_oriented_pairs=int(args.min_oriented_pairs),
         independent_pair_blocks=int(confidence_block_count),
@@ -1145,6 +1517,7 @@ def build_streaming_prior(args: argparse.Namespace) -> Dict[str, object]:
             f"{hist_range_fraction:.3%} of weighted attractive pairs fell outside histogram ranges; increase --gb-strength-max or inspect stream_histograms.npz. "
             "LC-Pearl V2 records this as coverage metadata but does not use it as a threshold-application gate."
         )
+    threshold_file = args.global_threshold_file or (output_dir / "global_thresholds.json")
     artifact = {
         "schema_version": SCHEMA_VERSION,
         "method_name": METHOD_NAME,
@@ -1222,8 +1595,16 @@ def build_streaming_prior(args: argparse.Namespace) -> Dict[str, object]:
             "audit_example_reservoir_seen_weight": float(round(float(audit_reservoir_seen_weight), 6)),
             "workers": int(worker_count),
         },
+        "outputs": {
+            "global_threshold_file": str(threshold_file),
+            "gb_strength_hist_plot": str(output_dir / "gb_strength_hist.png"),
+            "stream_histogram_plot": str(output_dir / "gb_strength_vs_p2_stream_hist.png"),
+            "stream_dotgrid_plot": str(output_dir / "gb_strength_vs_p2_stream_dotgrid.png"),
+            "stream_hexbin_plot": str(output_dir / "gb_strength_vs_p2_stream_hexbin.png"),
+            "lobe_split_preview_dir": str(output_dir / "lobe_split_preview"),
+            "core_slice_plot": str(output_dir / "lobe_split_preview" / "gb_core_slice_hist.png"),
+        },
     }
-    threshold_file = args.global_threshold_file or (output_dir / "global_thresholds.json")
     threshold_file.parent.mkdir(parents=True, exist_ok=True)
     threshold_file.write_text(json.dumps(artifact, indent=2, ensure_ascii=False), encoding="utf-8")
     (output_dir / "threshold_recommendations.json").write_text(json.dumps(artifact, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -1279,6 +1660,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--current-gb-off", type=float, default=0.12)
     parser.add_argument("--current-gb-on", type=float, default=0.30)
     parser.add_argument("--current-p2-cut", type=float, default=0.70)
+    parser.add_argument("--current-gb-core", type=float, default=DEFAULT_GB_CORE_STRENGTH)
+    parser.add_argument("--current-p2-core-cut", type=float, default=DEFAULT_P2_CORE_CUT)
+    parser.add_argument("--current-gb-strict-core", type=float, default=DEFAULT_GB_STRICT_CORE_STRENGTH)
+    parser.add_argument("--current-p2-strict-core-cut", type=float, default=DEFAULT_P2_STRICT_CORE_CUT)
     parser.add_argument("--current-s2-cut", type=float, default=0.70)
     parser.add_argument("--n-min", type=int, default=3)
     parser.add_argument("--min-pairs", type=int, default=100)
@@ -1304,6 +1689,18 @@ def main() -> None:
         raise SystemExit("--gb-bins and --p2-bins must be at least 10")
     if args.gb_strength_max <= 0.0:
         raise SystemExit("--gb-strength-max must be positive")
+    if args.current_gb_core <= 0.0:
+        raise SystemExit("--current-gb-core must be positive")
+    if not -0.5 <= args.current_p2_core_cut <= 1.0:
+        raise SystemExit("--current-p2-core-cut must be in [-0.5, 1.0]")
+    if args.current_gb_strict_core <= 0.0:
+        raise SystemExit("--current-gb-strict-core must be positive")
+    if args.current_gb_strict_core < args.current_gb_core:
+        raise SystemExit("--current-gb-strict-core must be >= --current-gb-core")
+    if not -0.5 <= args.current_p2_strict_core_cut <= 1.0:
+        raise SystemExit("--current-p2-strict-core-cut must be in [-0.5, 1.0]")
+    if args.current_p2_strict_core_cut < args.current_p2_core_cut:
+        raise SystemExit("--current-p2-strict-core-cut must be >= --current-p2-core-cut")
     build_streaming_prior(args)
 
 

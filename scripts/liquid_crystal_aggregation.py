@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Liquid-crystal domain and pearl-necklace analysis for LAMMPS dump files.
 
-Algorithm v1 separates three questions that were previously mixed together:
+LC-Pearl v2 separates three questions that were previously mixed together:
 support contacts define local LC bundles, robust domains require additional
-evidence, and pearls are compact 3D bead-like groups of robust domains.
+evidence, and pearls are compact 3D bead-like groups of robust domains. A
+diagnostic core-contact layer marks stricter high-GB/high-P2 contacts for
+visualization without changing the main domain/pearl definitions.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+import lc_domain_size_counts
 from lc_threshold_recommend import annotate_hline, annotate_vline, threshold_label
 
 
@@ -91,6 +94,10 @@ class AggregationConfig:
     u_off: float = -0.12
     gb_on_strength: float = 0.30
     gb_off_strength: float = 0.12
+    gb_core_strength: float = 0.70
+    p2_core_cut: float = 0.71
+    gb_strict_core_strength: float = 0.90
+    p2_strict_core_cut: float = 0.80
     r_energy_cap: Optional[float] = None
     g_on: float = 1.0
     g_off: float = 1.25
@@ -125,6 +132,7 @@ class AggregationConfig:
     write_diagnostics: bool = True
     edge_diagnostics_table: str = "off"
     edge_diagnostics_sample_size: int = 200_000
+    accepted_edge_audit: bool = False
     shared_r_cut: bool = True
     track_across_files: bool = True
     workers: int = 1
@@ -151,6 +159,22 @@ class FrameAggregationResult:
     n_clusters: int
     qualified_pairs: int
     qualified_pair_fraction: float
+    core_contact_count: int
+    core_nonlocal_contact_count: int
+    core_local_contact_count: int
+    core_contact_fraction: float
+    core_particle_fraction: float
+    core_seed_edge_count: int
+    mean_core_contact_degree: float
+    max_core_contact_degree: int
+    strict_core_contact_count: int
+    strict_core_nonlocal_contact_count: int
+    strict_core_local_contact_count: int
+    strict_core_contact_fraction: float
+    strict_core_particle_fraction: float
+    strict_core_seed_edge_count: int
+    mean_strict_core_contact_degree: float
+    max_strict_core_contact_degree: int
     energy_edge_count: int
     min_pair_energy: float
     mean_pair_energy: float
@@ -211,6 +235,16 @@ class SupportEdge:
     well_depth: Optional[float] = None
     attraction_strength: Optional[float] = None
     contact_mode: str = "center"
+    is_core_contact: bool = False
+    passes_gb_core: bool = False
+    passes_p2_core: bool = False
+    core_gb_margin: float = 0.0
+    core_p2_margin: float = 0.0
+    is_strict_core_contact: bool = False
+    passes_gb_strict_core: bool = False
+    passes_p2_strict_core: bool = False
+    strict_core_gb_margin: float = 0.0
+    strict_core_p2_margin: float = 0.0
 
 
 @dataclass
@@ -223,7 +257,17 @@ class DomainCandidate:
     edge_count: int
     adjacent_edge_count: int
     nonlocal_edge_count: int
-    stable_under_perturbation: bool
+    core_edge_count: int = 0
+    core_nonlocal_edge_count: int = 0
+    core_local_edge_count: int = 0
+    core_particle_count: int = 0
+    core_particle_fraction: float = 0.0
+    strict_core_edge_count: int = 0
+    strict_core_nonlocal_edge_count: int = 0
+    strict_core_local_edge_count: int = 0
+    strict_core_particle_count: int = 0
+    strict_core_particle_fraction: float = 0.0
+    stable_under_perturbation: bool = False
     track_id: int = -1
     age: int = 1
     evidence: Optional[Dict[str, bool]] = None
@@ -1195,6 +1239,16 @@ def build_support_graph(
             pair_energy: Optional[float] = None
             well_depth: Optional[float] = None
             attraction_strength: Optional[float] = None
+            passes_gb_core = False
+            passes_p2_core = False
+            is_core_contact = False
+            core_gb_margin = 0.0
+            core_p2_margin = float(score) - float(effective_config.p2_core_cut)
+            passes_gb_strict_core = False
+            passes_p2_strict_core = False
+            is_strict_core_contact = False
+            strict_core_gb_margin = 0.0
+            strict_core_p2_margin = float(score) - float(effective_config.p2_strict_core_cut)
             if effective_config.contact_mode == "gayberne":
                 neighbor_idx = int(neighbor)
                 delta_vec = minimum_image_vector(pos[neighbor_idx, :] - pos[i, :], box)
@@ -1211,6 +1265,14 @@ def build_support_graph(
                     continue
                 pair_energy, well_depth = pair_metrics
                 attraction_strength = max(0.0, -float(pair_energy) / max(float(well_depth), 1e-24))
+                passes_gb_core = bool(attraction_strength >= effective_config.gb_core_strength)
+                passes_p2_core = bool(float(score) > effective_config.p2_core_cut)
+                is_core_contact = bool(passes_gb_core and passes_p2_core)
+                core_gb_margin = float(attraction_strength) - float(effective_config.gb_core_strength)
+                passes_gb_strict_core = bool(attraction_strength >= effective_config.gb_strict_core_strength)
+                passes_p2_strict_core = bool(float(score) > effective_config.p2_strict_core_cut)
+                is_strict_core_contact = bool(is_core_contact and passes_gb_strict_core and passes_p2_strict_core)
+                strict_core_gb_margin = float(attraction_strength) - float(effective_config.gb_strict_core_strength)
                 if effective_config.gb_threshold_mode == "relative":
                     g_value = -float(attraction_strength)
                     is_strong = attraction_strength >= effective_config.gb_on_strength
@@ -1282,6 +1344,16 @@ def build_support_graph(
                 well_depth=well_depth,
                 attraction_strength=attraction_strength,
                 contact_mode=effective_config.contact_mode,
+                is_core_contact=is_core_contact,
+                passes_gb_core=passes_gb_core,
+                passes_p2_core=passes_p2_core,
+                core_gb_margin=float(core_gb_margin),
+                core_p2_margin=float(core_p2_margin),
+                is_strict_core_contact=is_strict_core_contact,
+                passes_gb_strict_core=passes_gb_strict_core,
+                passes_p2_strict_core=passes_p2_strict_core,
+                strict_core_gb_margin=float(strict_core_gb_margin),
+                strict_core_p2_margin=float(strict_core_p2_margin),
             )
             adjacency[i].append(int(neighbor))
             adjacency[int(neighbor)].append(i)
@@ -1624,6 +1696,12 @@ def build_domain_candidates(
         component_edges = [edge for edge in edges if edge.i in component_set and edge.j in component_set]
         local_edges = sum(1 for edge in component_edges if edge.is_local)
         nonlocal_edges = len(component_edges) - local_edges
+        core_edges = [edge for edge in component_edges if edge.is_core_contact]
+        core_local_edges = sum(1 for edge in core_edges if edge.is_local)
+        core_particles = {edge.i for edge in core_edges} | {edge.j for edge in core_edges}
+        strict_core_edges = [edge for edge in component_edges if edge.is_strict_core_contact]
+        strict_core_local_edges = sum(1 for edge in strict_core_edges if edge.is_local)
+        strict_core_particles = {edge.i for edge in strict_core_edges} | {edge.j for edge in strict_core_edges}
         domain_s2, director = compute_Q_and_S(u[np.asarray(component, dtype=int), :])
         stable = is_component_stable_under_perturbation(component, pair_map, r_cut, p2_cutoff, config)
         atom_ids = [int(particle_ids[idx]) for idx in component]
@@ -1637,6 +1715,16 @@ def build_domain_candidates(
                 edge_count=len(component_edges),
                 adjacent_edge_count=local_edges,
                 nonlocal_edge_count=nonlocal_edges,
+                core_edge_count=len(core_edges),
+                core_nonlocal_edge_count=len(core_edges) - core_local_edges,
+                core_local_edge_count=core_local_edges,
+                core_particle_count=len(core_particles),
+                core_particle_fraction=(len(core_particles) / len(component) if component else 0.0),
+                strict_core_edge_count=len(strict_core_edges),
+                strict_core_nonlocal_edge_count=len(strict_core_edges) - strict_core_local_edges,
+                strict_core_local_edge_count=strict_core_local_edges,
+                strict_core_particle_count=len(strict_core_particles),
+                strict_core_particle_fraction=(len(strict_core_particles) / len(component) if component else 0.0),
                 stable_under_perturbation=stable,
                 classification="robust",
             )
@@ -1650,6 +1738,12 @@ def build_domain_candidates(
         component_edges = [edge for edge in edges if edge.i in component_set and edge.j in component_set]
         local_edges = sum(1 for edge in component_edges if edge.is_local)
         nonlocal_edges = len(component_edges) - local_edges
+        core_edges = [edge for edge in component_edges if edge.is_core_contact]
+        core_local_edges = sum(1 for edge in core_edges if edge.is_local)
+        core_particles = {edge.i for edge in core_edges} | {edge.j for edge in core_edges}
+        strict_core_edges = [edge for edge in component_edges if edge.is_strict_core_contact]
+        strict_core_local_edges = sum(1 for edge in strict_core_edges if edge.is_local)
+        strict_core_particles = {edge.i for edge in strict_core_edges} | {edge.j for edge in strict_core_edges}
         domain_s2, director = compute_Q_and_S(u[np.asarray(component, dtype=int), :])
         atom_ids = [int(particle_ids[idx]) for idx in component]
         domains.append(
@@ -1662,6 +1756,16 @@ def build_domain_candidates(
                 edge_count=len(component_edges),
                 adjacent_edge_count=local_edges,
                 nonlocal_edge_count=nonlocal_edges,
+                core_edge_count=len(core_edges),
+                core_nonlocal_edge_count=len(core_edges) - core_local_edges,
+                core_local_edge_count=core_local_edges,
+                core_particle_count=len(core_particles),
+                core_particle_fraction=(len(core_particles) / len(component) if component else 0.0),
+                strict_core_edge_count=len(strict_core_edges),
+                strict_core_nonlocal_edge_count=len(strict_core_edges) - strict_core_local_edges,
+                strict_core_local_edge_count=strict_core_local_edges,
+                strict_core_particle_count=len(strict_core_particles),
+                strict_core_particle_fraction=(len(strict_core_particles) / len(component) if component else 0.0),
                 stable_under_perturbation=is_component_stable_under_perturbation(
                     component,
                     pair_map,
@@ -2188,6 +2292,10 @@ def clone_config_for_grid(config: AggregationConfig, g_on: float, q_on: float, s
         u_off=config.u_off,
         gb_on_strength=config.gb_on_strength,
         gb_off_strength=config.gb_off_strength,
+        gb_core_strength=config.gb_core_strength,
+        p2_core_cut=config.p2_core_cut,
+        gb_strict_core_strength=config.gb_strict_core_strength,
+        p2_strict_core_cut=config.p2_strict_core_cut,
         r_energy_cap=config.r_energy_cap,
         g_on=float(g_on),
         g_off=max(config.g_off, float(g_on) + 1e-6),
@@ -2309,6 +2417,16 @@ def domain_to_record(domain: DomainCandidate) -> Dict[str, object]:
         "edge_count": int(domain.edge_count),
         "adjacent_edge_count": int(domain.adjacent_edge_count),
         "nonlocal_edge_count": int(domain.nonlocal_edge_count),
+        "core_edge_count": int(domain.core_edge_count),
+        "core_nonlocal_edge_count": int(domain.core_nonlocal_edge_count),
+        "core_local_edge_count": int(domain.core_local_edge_count),
+        "core_particle_count": int(domain.core_particle_count),
+        "core_particle_fraction": float(domain.core_particle_fraction),
+        "strict_core_edge_count": int(domain.strict_core_edge_count),
+        "strict_core_nonlocal_edge_count": int(domain.strict_core_nonlocal_edge_count),
+        "strict_core_local_edge_count": int(domain.strict_core_local_edge_count),
+        "strict_core_particle_count": int(domain.strict_core_particle_count),
+        "strict_core_particle_fraction": float(domain.strict_core_particle_fraction),
         "stable_under_perturbation": bool(domain.stable_under_perturbation),
         "evidence_count": int(domain.evidence_count),
         "evidence": dict(domain.evidence or {}),
@@ -2335,37 +2453,91 @@ def particle_contact_records_from_edges(
 ) -> List[Dict[str, object]]:
     energy_by_atom: Dict[int, List[float]] = {int(atom_id): [] for atom_id in particle_ids}
     strength_by_atom: Dict[int, List[float]] = {int(atom_id): [] for atom_id in particle_ids}
+    core_strength_by_atom: Dict[int, List[float]] = {int(atom_id): [] for atom_id in particle_ids}
+    core_p2_by_atom: Dict[int, List[float]] = {int(atom_id): [] for atom_id in particle_ids}
+    strict_core_strength_by_atom: Dict[int, List[float]] = {int(atom_id): [] for atom_id in particle_ids}
+    strict_core_p2_by_atom: Dict[int, List[float]] = {int(atom_id): [] for atom_id in particle_ids}
     degree_by_atom: Dict[int, int] = {int(atom_id): 0 for atom_id in particle_ids}
+    aggregation_tier_by_atom: Dict[int, int] = {int(atom_id): 0 for atom_id in particle_ids}
+    core_degree_by_atom: Dict[int, int] = {int(atom_id): 0 for atom_id in particle_ids}
+    core_nonlocal_degree_by_atom: Dict[int, int] = {int(atom_id): 0 for atom_id in particle_ids}
+    core_local_degree_by_atom: Dict[int, int] = {int(atom_id): 0 for atom_id in particle_ids}
+    strict_core_degree_by_atom: Dict[int, int] = {int(atom_id): 0 for atom_id in particle_ids}
+    strict_core_nonlocal_degree_by_atom: Dict[int, int] = {int(atom_id): 0 for atom_id in particle_ids}
+    strict_core_local_degree_by_atom: Dict[int, int] = {int(atom_id): 0 for atom_id in particle_ids}
     for edge in edges:
+        edge_tier = 4 if edge.is_strict_core_contact else 3 if edge.is_core_contact else 2 if edge.edge_type == "strong" else 1
         for atom_id in (edge.atom_i, edge.atom_j):
             degree_by_atom[int(atom_id)] = degree_by_atom.get(int(atom_id), 0) + 1
+            aggregation_tier_by_atom[int(atom_id)] = max(int(aggregation_tier_by_atom.get(int(atom_id), 0)), int(edge_tier))
             if edge.pair_energy is not None:
                 energy_by_atom.setdefault(int(atom_id), []).append(float(edge.pair_energy))
             if edge.attraction_strength is not None:
                 strength_by_atom.setdefault(int(atom_id), []).append(float(edge.attraction_strength))
+            if edge.is_core_contact:
+                core_degree_by_atom[int(atom_id)] = core_degree_by_atom.get(int(atom_id), 0) + 1
+                if edge.is_local:
+                    core_local_degree_by_atom[int(atom_id)] = core_local_degree_by_atom.get(int(atom_id), 0) + 1
+                else:
+                    core_nonlocal_degree_by_atom[int(atom_id)] = core_nonlocal_degree_by_atom.get(int(atom_id), 0) + 1
+                if edge.attraction_strength is not None:
+                    core_strength_by_atom.setdefault(int(atom_id), []).append(float(edge.attraction_strength))
+                core_p2_by_atom.setdefault(int(atom_id), []).append(float(edge.p2_score))
+            if edge.is_strict_core_contact:
+                strict_core_degree_by_atom[int(atom_id)] = strict_core_degree_by_atom.get(int(atom_id), 0) + 1
+                if edge.is_local:
+                    strict_core_local_degree_by_atom[int(atom_id)] = strict_core_local_degree_by_atom.get(int(atom_id), 0) + 1
+                else:
+                    strict_core_nonlocal_degree_by_atom[int(atom_id)] = strict_core_nonlocal_degree_by_atom.get(int(atom_id), 0) + 1
+                if edge.attraction_strength is not None:
+                    strict_core_strength_by_atom.setdefault(int(atom_id), []).append(float(edge.attraction_strength))
+                strict_core_p2_by_atom.setdefault(int(atom_id), []).append(float(edge.p2_score))
 
     records: List[Dict[str, object]] = []
     for atom_id in particle_ids:
         atom_key = int(atom_id)
         values = energy_by_atom.get(atom_key, [])
         strengths = strength_by_atom.get(atom_key, [])
+        core_strengths = core_strength_by_atom.get(atom_key, [])
+        core_p2_values = core_p2_by_atom.get(atom_key, [])
+        strict_core_strengths = strict_core_strength_by_atom.get(atom_key, [])
+        strict_core_p2_values = strict_core_p2_by_atom.get(atom_key, [])
         records.append(
             {
                 "atom_id": atom_key,
+                "aggregation_tier": int(aggregation_tier_by_atom.get(atom_key, 0)),
                 "contact_degree": int(degree_by_atom.get(atom_key, 0)),
                 "min_pair_energy": float(min(values)) if values else 0.0,
                 "mean_pair_energy": float(np.mean(np.array(values, dtype=float))) if values else 0.0,
                 "max_attraction_strength": float(max(strengths)) if strengths else 0.0,
                 "mean_attraction_strength": float(np.mean(np.array(strengths, dtype=float))) if strengths else 0.0,
+                "core_contact_degree": int(core_degree_by_atom.get(atom_key, 0)),
+                "core_nonlocal_degree": int(core_nonlocal_degree_by_atom.get(atom_key, 0)),
+                "core_local_degree": int(core_local_degree_by_atom.get(atom_key, 0)),
+                "is_core_particle": int(core_degree_by_atom.get(atom_key, 0) > 0),
+                "max_core_gb_strength": float(max(core_strengths)) if core_strengths else 0.0,
+                "mean_core_gb_strength": float(np.mean(np.array(core_strengths, dtype=float))) if core_strengths else 0.0,
+                "max_core_p2": float(max(core_p2_values)) if core_p2_values else 0.0,
+                "mean_core_p2": float(np.mean(np.array(core_p2_values, dtype=float))) if core_p2_values else 0.0,
+                "strict_core_contact_degree": int(strict_core_degree_by_atom.get(atom_key, 0)),
+                "strict_core_nonlocal_degree": int(strict_core_nonlocal_degree_by_atom.get(atom_key, 0)),
+                "strict_core_local_degree": int(strict_core_local_degree_by_atom.get(atom_key, 0)),
+                "is_strict_core_particle": int(strict_core_degree_by_atom.get(atom_key, 0) > 0),
+                "max_strict_core_gb_strength": float(max(strict_core_strengths)) if strict_core_strengths else 0.0,
+                "mean_strict_core_gb_strength": float(np.mean(np.array(strict_core_strengths, dtype=float))) if strict_core_strengths else 0.0,
+                "max_strict_core_p2": float(max(strict_core_p2_values)) if strict_core_p2_values else 0.0,
+                "mean_strict_core_p2": float(np.mean(np.array(strict_core_p2_values, dtype=float))) if strict_core_p2_values else 0.0,
             }
         )
     return records
 
 
-def contact_edge_records_from_edges(edges: Sequence[SupportEdge]) -> List[Dict[str, object]]:
+def contact_edge_records_from_edges(edges: Sequence[SupportEdge], config: Optional[AggregationConfig] = None) -> List[Dict[str, object]]:
     edge_type_codes = {"local-support": 1, "gray": 2, "strong": 3}
     records: List[Dict[str, object]] = []
     for edge_id, edge in enumerate(edges, start=1):
+        contact_tier = "strict-core" if edge.is_strict_core_contact else "core" if edge.is_core_contact else edge.edge_type
+        contact_tier_code = 5 if edge.is_strict_core_contact else 4 if edge.is_core_contact else int(edge_type_codes.get(edge.edge_type, 0))
         records.append(
             {
                 "edge_id": int(edge_id),
@@ -2381,6 +2553,26 @@ def contact_edge_records_from_edges(edges: Sequence[SupportEdge]) -> List[Dict[s
                 "edge_type": edge.edge_type,
                 "edge_type_code": int(edge_type_codes.get(edge.edge_type, 0)),
                 "is_local": int(edge.is_local),
+                "is_core_contact": int(edge.is_core_contact),
+                "is_core_seed": int(edge.is_core_contact and not edge.is_local),
+                "core_contact_code": int(edge.is_core_contact),
+                "is_strict_core_contact": int(edge.is_strict_core_contact),
+                "is_strict_core_seed": int(edge.is_strict_core_contact and not edge.is_local),
+                "strict_core_contact_code": int(edge.is_strict_core_contact),
+                "contact_tier": contact_tier,
+                "contact_tier_code": int(contact_tier_code),
+                "passes_gb_core": int(edge.passes_gb_core),
+                "passes_p2_core": int(edge.passes_p2_core),
+                "gb_core_strength_cut": float(config.gb_core_strength) if config is not None else 0.0,
+                "p2_core_cut": float(config.p2_core_cut) if config is not None else 0.0,
+                "core_gb_margin": float(edge.core_gb_margin),
+                "core_p2_margin": float(edge.core_p2_margin),
+                "passes_gb_strict_core": int(edge.passes_gb_strict_core),
+                "passes_p2_strict_core": int(edge.passes_p2_strict_core),
+                "gb_strict_core_strength_cut": float(config.gb_strict_core_strength) if config is not None else 0.0,
+                "p2_strict_core_cut": float(config.p2_strict_core_cut) if config is not None else 0.0,
+                "strict_core_gb_margin": float(edge.strict_core_gb_margin),
+                "strict_core_p2_margin": float(edge.strict_core_p2_margin),
             }
         )
     return records
@@ -2487,9 +2679,40 @@ def compute_frame_aggregation(
     max_cluster_s2 = max(robust_domain_s2) if robust_domain_s2 else 0.0
     qualified_pairs = len(edges)
     qualified_pair_fraction = (2.0 * qualified_pairs / (n_particles * (n_particles - 1))) if n_particles > 1 else 0.0
+    core_edges = [edge for edge in edges if edge.is_core_contact]
+    core_local_contact_count = sum(1 for edge in core_edges if edge.is_local)
+    core_nonlocal_contact_count = len(core_edges) - core_local_contact_count
+    core_seed_edge_count = sum(1 for edge in core_edges if not edge.is_local)
+    core_particle_ids = {int(edge.atom_i) for edge in core_edges} | {int(edge.atom_j) for edge in core_edges}
+    core_contact_fraction = len(core_edges) / len(edges) if edges else 0.0
+    core_particle_fraction = len(core_particle_ids) / n_particles if n_particles else 0.0
+    core_degree_values = np.zeros(n_particles, dtype=int)
+    atom_to_index = {int(atom_id): idx for idx, atom_id in enumerate(ids)}
+    for edge in core_edges:
+        for atom_id in (edge.atom_i, edge.atom_j):
+            atom_index = atom_to_index.get(int(atom_id))
+            if atom_index is not None:
+                core_degree_values[atom_index] += 1
+    mean_core_contact_degree = float(np.mean(core_degree_values.astype(float))) if n_particles else 0.0
+    max_core_contact_degree = int(np.max(core_degree_values)) if n_particles else 0
+    strict_core_edges = [edge for edge in edges if edge.is_strict_core_contact]
+    strict_core_local_contact_count = sum(1 for edge in strict_core_edges if edge.is_local)
+    strict_core_nonlocal_contact_count = len(strict_core_edges) - strict_core_local_contact_count
+    strict_core_seed_edge_count = sum(1 for edge in strict_core_edges if not edge.is_local)
+    strict_core_particle_ids = {int(edge.atom_i) for edge in strict_core_edges} | {int(edge.atom_j) for edge in strict_core_edges}
+    strict_core_contact_fraction = len(strict_core_edges) / len(edges) if edges else 0.0
+    strict_core_particle_fraction = len(strict_core_particle_ids) / n_particles if n_particles else 0.0
+    strict_core_degree_values = np.zeros(n_particles, dtype=int)
+    for edge in strict_core_edges:
+        for atom_id in (edge.atom_i, edge.atom_j):
+            atom_index = atom_to_index.get(int(atom_id))
+            if atom_index is not None:
+                strict_core_degree_values[atom_index] += 1
+    mean_strict_core_contact_degree = float(np.mean(strict_core_degree_values.astype(float))) if n_particles else 0.0
+    max_strict_core_contact_degree = int(np.max(strict_core_degree_values)) if n_particles else 0
     pair_energies = [float(edge.pair_energy) for edge in edges if edge.pair_energy is not None]
     particle_contact_records = particle_contact_records_from_edges(edges, ids)
-    contact_edge_records = contact_edge_records_from_edges(edges)
+    contact_edge_records = contact_edge_records_from_edges(edges, effective_config)
     pearl_candidate_records = evaluate_pearl_domain_pairs(
         robust_domains=robust_domains,
         pos=pos,
@@ -2553,6 +2776,22 @@ def compute_frame_aggregation(
         n_clusters=len(robust_domain_sizes),
         qualified_pairs=int(qualified_pairs),
         qualified_pair_fraction=float(qualified_pair_fraction),
+        core_contact_count=int(len(core_edges)),
+        core_nonlocal_contact_count=int(core_nonlocal_contact_count),
+        core_local_contact_count=int(core_local_contact_count),
+        core_contact_fraction=float(core_contact_fraction),
+        core_particle_fraction=float(core_particle_fraction),
+        core_seed_edge_count=int(core_seed_edge_count),
+        mean_core_contact_degree=float(mean_core_contact_degree),
+        max_core_contact_degree=int(max_core_contact_degree),
+        strict_core_contact_count=int(len(strict_core_edges)),
+        strict_core_nonlocal_contact_count=int(strict_core_nonlocal_contact_count),
+        strict_core_local_contact_count=int(strict_core_local_contact_count),
+        strict_core_contact_fraction=float(strict_core_contact_fraction),
+        strict_core_particle_fraction=float(strict_core_particle_fraction),
+        strict_core_seed_edge_count=int(strict_core_seed_edge_count),
+        mean_strict_core_contact_degree=float(mean_strict_core_contact_degree),
+        max_strict_core_contact_degree=int(max_strict_core_contact_degree),
         energy_edge_count=len(pair_energies),
         min_pair_energy=float(min(pair_energies)) if pair_energies else 0.0,
         mean_pair_energy=float(np.mean(np.array(pair_energies, dtype=float))) if pair_energies else 0.0,
@@ -2682,6 +2921,14 @@ def process_dump_file(
     ambiguous_values = np.array([item.ambiguous_mesogen_fraction for item in results], dtype=float)
     min_pair_energy_values = np.array([item.min_pair_energy for item in results], dtype=float)
     mean_pair_energy_values = np.array([item.mean_pair_energy for item in results], dtype=float)
+    core_contact_counts = np.array([item.core_contact_count for item in results], dtype=float)
+    core_nonlocal_counts = np.array([item.core_nonlocal_contact_count for item in results], dtype=float)
+    core_contact_fractions = np.array([item.core_contact_fraction for item in results], dtype=float)
+    core_particle_fractions = np.array([item.core_particle_fraction for item in results], dtype=float)
+    strict_core_contact_counts = np.array([item.strict_core_contact_count for item in results], dtype=float)
+    strict_core_nonlocal_counts = np.array([item.strict_core_nonlocal_contact_count for item in results], dtype=float)
+    strict_core_contact_fractions = np.array([item.strict_core_contact_fraction for item in results], dtype=float)
+    strict_core_particle_fractions = np.array([item.strict_core_particle_fraction for item in results], dtype=float)
 
     summary: Dict[str, object] = {
         "source_file": str(dump_path),
@@ -2697,6 +2944,14 @@ def process_dump_file(
         "mean_largest_visual_cluster_fraction": float(np.mean(largest_visual_cluster_values)),
         "min_pair_energy": float(np.min(min_pair_energy_values)) if min_pair_energy_values.size else 0.0,
         "mean_pair_energy": float(np.mean(mean_pair_energy_values)) if mean_pair_energy_values.size else 0.0,
+        "mean_core_contact_count": float(np.mean(core_contact_counts)),
+        "mean_core_nonlocal_contact_count": float(np.mean(core_nonlocal_counts)),
+        "mean_core_contact_fraction": float(np.mean(core_contact_fractions)),
+        "mean_core_particle_fraction": float(np.mean(core_particle_fractions)),
+        "mean_strict_core_contact_count": float(np.mean(strict_core_contact_counts)),
+        "mean_strict_core_nonlocal_contact_count": float(np.mean(strict_core_nonlocal_counts)),
+        "mean_strict_core_contact_fraction": float(np.mean(strict_core_contact_fractions)),
+        "mean_strict_core_particle_fraction": float(np.mean(strict_core_particle_fractions)),
         "mean_robust_domain_count": float(np.mean(robust_counts)),
         "mean_weak_domain_count": float(np.mean(weak_counts)),
         "mean_pearl_count": float(np.mean(pearl_counts)),
@@ -2712,6 +2967,10 @@ def process_dump_file(
             "robust_domain_count": int(results[-1].robust_domain_count),
             "weak_domain_count": int(results[-1].weak_domain_count),
             "pearl_count": int(results[-1].pearl_count),
+            "core_contact_count": int(results[-1].core_contact_count),
+            "core_particle_fraction": float(results[-1].core_particle_fraction),
+            "strict_core_contact_count": int(results[-1].strict_core_contact_count),
+            "strict_core_particle_fraction": float(results[-1].strict_core_particle_fraction),
             "L_parallel": float(results[-1].l_parallel),
         },
     }
@@ -2797,6 +3056,22 @@ def result_to_tsv_row(result: FrameAggregationResult) -> str:
         str(result.n_clusters),
         str(result.qualified_pairs),
         f"{result.qualified_pair_fraction:.8f}",
+        str(result.core_contact_count),
+        str(result.core_nonlocal_contact_count),
+        str(result.core_local_contact_count),
+        f"{result.core_contact_fraction:.8f}",
+        f"{result.core_particle_fraction:.8f}",
+        str(result.core_seed_edge_count),
+        f"{result.mean_core_contact_degree:.8f}",
+        str(result.max_core_contact_degree),
+        str(result.strict_core_contact_count),
+        str(result.strict_core_nonlocal_contact_count),
+        str(result.strict_core_local_contact_count),
+        f"{result.strict_core_contact_fraction:.8f}",
+        f"{result.strict_core_particle_fraction:.8f}",
+        str(result.strict_core_seed_edge_count),
+        f"{result.mean_strict_core_contact_degree:.8f}",
+        str(result.max_strict_core_contact_degree),
         str(result.energy_edge_count),
         f"{result.min_pair_energy:.8f}",
         f"{result.mean_pair_energy:.8f}",
@@ -2837,34 +3112,59 @@ def result_to_tsv_row(result: FrameAggregationResult) -> str:
 
 def build_label_maps(
     result: FrameAggregationResult,
-) -> Tuple[
-    Dict[int, int],
-    Dict[int, int],
-    Dict[int, int],
-    Dict[int, int],
-    Dict[int, int],
-    Dict[int, int],
-    Dict[int, float],
-    Dict[int, float],
-]:
+) -> Tuple[Dict[int, object], ...]:
     atom_to_cluster: Dict[int, int] = {}
     atom_to_cluster_size: Dict[int, int] = {}
     atom_to_domain: Dict[int, int] = {}
     atom_to_state: Dict[int, int] = {}
     atom_to_pearl: Dict[int, int] = {}
+    atom_to_aggregation_tier: Dict[int, int] = {}
     atom_to_contact_degree: Dict[int, int] = {}
     atom_to_min_energy: Dict[int, float] = {}
     atom_to_mean_energy: Dict[int, float] = {}
     atom_to_max_strength: Dict[int, float] = {}
     atom_to_mean_strength: Dict[int, float] = {}
+    atom_to_core_degree: Dict[int, int] = {}
+    atom_to_core_nonlocal_degree: Dict[int, int] = {}
+    atom_to_core_local_degree: Dict[int, int] = {}
+    atom_to_is_core_particle: Dict[int, int] = {}
+    atom_to_max_core_strength: Dict[int, float] = {}
+    atom_to_mean_core_strength: Dict[int, float] = {}
+    atom_to_max_core_p2: Dict[int, float] = {}
+    atom_to_mean_core_p2: Dict[int, float] = {}
+    atom_to_strict_core_degree: Dict[int, int] = {}
+    atom_to_strict_core_nonlocal_degree: Dict[int, int] = {}
+    atom_to_strict_core_local_degree: Dict[int, int] = {}
+    atom_to_is_strict_core_particle: Dict[int, int] = {}
+    atom_to_max_strict_core_strength: Dict[int, float] = {}
+    atom_to_mean_strict_core_strength: Dict[int, float] = {}
+    atom_to_max_strict_core_p2: Dict[int, float] = {}
+    atom_to_mean_strict_core_p2: Dict[int, float] = {}
 
     for record in result.particle_contact_records:
         atom_id = int(record["atom_id"])
+        atom_to_aggregation_tier[atom_id] = int(record.get("aggregation_tier", 0))
         atom_to_contact_degree[atom_id] = int(record["contact_degree"])
         atom_to_min_energy[atom_id] = float(record["min_pair_energy"])
         atom_to_mean_energy[atom_id] = float(record["mean_pair_energy"])
         atom_to_max_strength[atom_id] = float(record.get("max_attraction_strength", 0.0))
         atom_to_mean_strength[atom_id] = float(record.get("mean_attraction_strength", 0.0))
+        atom_to_core_degree[atom_id] = int(record.get("core_contact_degree", 0))
+        atom_to_core_nonlocal_degree[atom_id] = int(record.get("core_nonlocal_degree", 0))
+        atom_to_core_local_degree[atom_id] = int(record.get("core_local_degree", 0))
+        atom_to_is_core_particle[atom_id] = int(record.get("is_core_particle", 0))
+        atom_to_max_core_strength[atom_id] = float(record.get("max_core_gb_strength", 0.0))
+        atom_to_mean_core_strength[atom_id] = float(record.get("mean_core_gb_strength", 0.0))
+        atom_to_max_core_p2[atom_id] = float(record.get("max_core_p2", 0.0))
+        atom_to_mean_core_p2[atom_id] = float(record.get("mean_core_p2", 0.0))
+        atom_to_strict_core_degree[atom_id] = int(record.get("strict_core_contact_degree", 0))
+        atom_to_strict_core_nonlocal_degree[atom_id] = int(record.get("strict_core_nonlocal_degree", 0))
+        atom_to_strict_core_local_degree[atom_id] = int(record.get("strict_core_local_degree", 0))
+        atom_to_is_strict_core_particle[atom_id] = int(record.get("is_strict_core_particle", 0))
+        atom_to_max_strict_core_strength[atom_id] = float(record.get("max_strict_core_gb_strength", 0.0))
+        atom_to_mean_strict_core_strength[atom_id] = float(record.get("mean_strict_core_gb_strength", 0.0))
+        atom_to_max_strict_core_p2[atom_id] = float(record.get("max_strict_core_p2", 0.0))
+        atom_to_mean_strict_core_p2[atom_id] = float(record.get("mean_strict_core_p2", 0.0))
 
     for cluster in result.visual_cluster_records:
         cluster_id = int(cluster["cluster_id"])
@@ -2891,11 +3191,28 @@ def build_label_maps(
         atom_to_domain,
         atom_to_pearl,
         atom_to_state,
+        atom_to_aggregation_tier,
         atom_to_contact_degree,
         atom_to_min_energy,
         atom_to_mean_energy,
         atom_to_max_strength,
         atom_to_mean_strength,
+        atom_to_core_degree,
+        atom_to_core_nonlocal_degree,
+        atom_to_core_local_degree,
+        atom_to_is_core_particle,
+        atom_to_max_core_strength,
+        atom_to_mean_core_strength,
+        atom_to_max_core_p2,
+        atom_to_mean_core_p2,
+        atom_to_strict_core_degree,
+        atom_to_strict_core_nonlocal_degree,
+        atom_to_strict_core_local_degree,
+        atom_to_is_strict_core_particle,
+        atom_to_max_strict_core_strength,
+        atom_to_mean_strict_core_strength,
+        atom_to_max_strict_core_p2,
+        atom_to_mean_strict_core_p2,
     )
 
 
@@ -2927,20 +3244,54 @@ def write_ovito_label_dump(
                 atom_to_domain,
                 atom_to_pearl,
                 atom_to_state,
+                atom_to_aggregation_tier,
                 atom_to_contact_degree,
                 atom_to_min_energy,
                 atom_to_mean_energy,
                 atom_to_max_strength,
                 atom_to_mean_strength,
+                atom_to_core_degree,
+                atom_to_core_nonlocal_degree,
+                atom_to_core_local_degree,
+                atom_to_is_core_particle,
+                atom_to_max_core_strength,
+                atom_to_mean_core_strength,
+                atom_to_max_core_p2,
+                atom_to_mean_core_p2,
+                atom_to_strict_core_degree,
+                atom_to_strict_core_nonlocal_degree,
+                atom_to_strict_core_local_degree,
+                atom_to_is_strict_core_particle,
+                atom_to_max_strict_core_strength,
+                atom_to_mean_strict_core_strength,
+                atom_to_max_strict_core_p2,
+                atom_to_mean_strict_core_p2,
             ) = build_label_maps(result)
             label_columns = [
                 "lc_cluster",
                 "lc_cluster_size",
+                "lc_aggregation_tier",
                 "lc_contact_degree",
                 "lc_min_pair_energy",
                 "lc_mean_pair_energy",
                 "lc_max_gb_strength",
                 "lc_mean_gb_strength",
+                "lc_core_contact_degree",
+                "lc_core_nonlocal_degree",
+                "lc_core_local_degree",
+                "lc_is_core_particle",
+                "lc_max_core_gb_strength",
+                "lc_mean_core_gb_strength",
+                "lc_max_core_p2",
+                "lc_mean_core_p2",
+                "lc_strict_core_contact_degree",
+                "lc_strict_core_nonlocal_degree",
+                "lc_strict_core_local_degree",
+                "lc_is_strict_core_particle",
+                "lc_max_strict_core_gb_strength",
+                "lc_mean_strict_core_gb_strength",
+                "lc_max_strict_core_p2",
+                "lc_mean_strict_core_p2",
                 "lc_domain",
                 "lc_pearl",
                 "lc_state",
@@ -2964,11 +3315,28 @@ def write_ovito_label_dump(
                     [
                         str(atom_to_cluster.get(atom_key, 0)),
                         str(atom_to_cluster_size.get(atom_key, 0)),
+                        str(atom_to_aggregation_tier.get(atom_key, 0)),
                         str(atom_to_contact_degree.get(atom_key, 0)),
                         f"{atom_to_min_energy.get(atom_key, 0.0):.12g}",
                         f"{atom_to_mean_energy.get(atom_key, 0.0):.12g}",
                         f"{atom_to_max_strength.get(atom_key, 0.0):.12g}",
                         f"{atom_to_mean_strength.get(atom_key, 0.0):.12g}",
+                        str(atom_to_core_degree.get(atom_key, 0)),
+                        str(atom_to_core_nonlocal_degree.get(atom_key, 0)),
+                        str(atom_to_core_local_degree.get(atom_key, 0)),
+                        str(atom_to_is_core_particle.get(atom_key, 0)),
+                        f"{atom_to_max_core_strength.get(atom_key, 0.0):.12g}",
+                        f"{atom_to_mean_core_strength.get(atom_key, 0.0):.12g}",
+                        f"{atom_to_max_core_p2.get(atom_key, 0.0):.12g}",
+                        f"{atom_to_mean_core_p2.get(atom_key, 0.0):.12g}",
+                        str(atom_to_strict_core_degree.get(atom_key, 0)),
+                        str(atom_to_strict_core_nonlocal_degree.get(atom_key, 0)),
+                        str(atom_to_strict_core_local_degree.get(atom_key, 0)),
+                        str(atom_to_is_strict_core_particle.get(atom_key, 0)),
+                        f"{atom_to_max_strict_core_strength.get(atom_key, 0.0):.12g}",
+                        f"{atom_to_mean_strict_core_strength.get(atom_key, 0.0):.12g}",
+                        f"{atom_to_max_strict_core_p2.get(atom_key, 0.0):.12g}",
+                        f"{atom_to_mean_strict_core_p2.get(atom_key, 0.0):.12g}",
                         str(atom_to_domain.get(atom_key, 0)),
                         str(atom_to_pearl.get(atom_key, 0)),
                         str(atom_to_state.get(atom_key, 0)),
@@ -3063,7 +3431,13 @@ def write_contact_edge_dump(
             write_box_bounds(handle, box)
             handle.write(
                 "ITEM: ENTRIES edge_id atom_i atom_j distance pair_energy well_depth "
-                "attraction_strength q_score p2_score delta_s edge_type_code is_local\n"
+                "attraction_strength q_score p2_score delta_s edge_type_code is_local "
+                "is_core_contact is_core_seed core_contact_code contact_tier_code "
+                "passes_gb_core passes_p2_core gb_core_strength_cut p2_core_cut "
+                "core_gb_margin core_p2_margin is_strict_core_contact is_strict_core_seed "
+                "strict_core_contact_code passes_gb_strict_core passes_p2_strict_core "
+                "gb_strict_core_strength_cut p2_strict_core_cut strict_core_gb_margin "
+                "strict_core_p2_margin\n"
             )
             for edge in edges:
                 handle.write(
@@ -3071,7 +3445,17 @@ def write_contact_edge_dump(
                     f"{float(edge['distance']):.12g} {float(edge['pair_energy']):.12g} "
                     f"{float(edge['well_depth']):.12g} {float(edge['attraction_strength']):.12g} "
                     f"{float(edge['q_score']):.12g} {float(edge['p2_score']):.12g} "
-                    f"{int(edge['delta_s'])} {int(edge['edge_type_code'])} {int(edge['is_local'])}\n"
+                    f"{int(edge['delta_s'])} {int(edge['edge_type_code'])} {int(edge['is_local'])} "
+                    f"{int(edge['is_core_contact'])} {int(edge['is_core_seed'])} "
+                    f"{int(edge['core_contact_code'])} {int(edge['contact_tier_code'])} "
+                    f"{int(edge['passes_gb_core'])} {int(edge['passes_p2_core'])} "
+                    f"{float(edge['gb_core_strength_cut']):.12g} {float(edge['p2_core_cut']):.12g} "
+                    f"{float(edge['core_gb_margin']):.12g} {float(edge['core_p2_margin']):.12g} "
+                    f"{int(edge['is_strict_core_contact'])} {int(edge['is_strict_core_seed'])} "
+                    f"{int(edge['strict_core_contact_code'])} "
+                    f"{int(edge['passes_gb_strict_core'])} {int(edge['passes_p2_strict_core'])} "
+                    f"{float(edge['gb_strict_core_strength_cut']):.12g} {float(edge['p2_strict_core_cut']):.12g} "
+                    f"{float(edge['strict_core_gb_margin']):.12g} {float(edge['strict_core_p2_margin']):.12g}\n"
                 )
 
 
@@ -3120,7 +3504,34 @@ def write_contact_segment_vtks(
                 handle.write(f"2 {2 * idx} {2 * idx + 1}\n")
             if n_segments:
                 handle.write(f"CELL_DATA {n_segments}\n")
-                for name in ("attraction_strength", "pair_energy", "edge_type_code", "is_local"):
+                for name in (
+                    "attraction_strength",
+                    "pair_energy",
+                    "q_score",
+                    "p2_score",
+                    "delta_s",
+                    "edge_type_code",
+                    "is_local",
+                    "is_core_contact",
+                    "is_core_seed",
+                    "core_contact_code",
+                    "is_strict_core_contact",
+                    "is_strict_core_seed",
+                    "strict_core_contact_code",
+                    "contact_tier_code",
+                    "passes_gb_core",
+                    "passes_p2_core",
+                    "gb_core_strength_cut",
+                    "p2_core_cut",
+                    "passes_gb_strict_core",
+                    "passes_p2_strict_core",
+                    "gb_strict_core_strength_cut",
+                    "p2_strict_core_cut",
+                    "core_gb_margin",
+                    "core_p2_margin",
+                    "strict_core_gb_margin",
+                    "strict_core_p2_margin",
+                ):
                     handle.write(f"SCALARS {name} float 1\n")
                     handle.write("LOOKUP_TABLE default\n")
                     for edge in edge_rows:
@@ -3177,6 +3588,26 @@ def write_diagnostic_outputs(
         "edge_type",
         "edge_type_code",
         "is_local",
+        "is_core_contact",
+        "is_core_seed",
+        "core_contact_code",
+        "is_strict_core_contact",
+        "is_strict_core_seed",
+        "strict_core_contact_code",
+        "contact_tier",
+        "contact_tier_code",
+        "passes_gb_core",
+        "passes_p2_core",
+        "gb_core_strength_cut",
+        "p2_core_cut",
+        "core_gb_margin",
+        "core_p2_margin",
+        "passes_gb_strict_core",
+        "passes_p2_strict_core",
+        "gb_strict_core_strength_cut",
+        "p2_strict_core_cut",
+        "strict_core_gb_margin",
+        "strict_core_p2_margin",
     ]
     edge_table_mode = str(config.edge_diagnostics_table)
     written_edge_rows = 0
@@ -3203,7 +3634,7 @@ def write_diagnostic_outputs(
         if edge_table.exists():
             edge_table.unlink()
         (diagnostics_dir / "edge_diagnostics_table_disabled.txt").write_text(
-            "edge_diagnostics.tsv was not written. Default LC-Pearl V2 diagnostics keep summary JSON and histogram plots only. "
+            "edge_diagnostics.tsv was not written. Default LC-Pearl V2 diagnostics keep summary JSON and compact aggregate counts only. "
             "Use --edge-diagnostics-table sample or --edge-diagnostics-table full if a TSV edge table is explicitly needed.\n",
             encoding="utf-8",
         )
@@ -3222,6 +3653,16 @@ def write_diagnostic_outputs(
             "edge_count",
             "adjacent_edge_count",
             "nonlocal_edge_count",
+            "core_edge_count",
+            "core_nonlocal_edge_count",
+            "core_local_edge_count",
+            "core_particle_count",
+            "core_particle_fraction",
+            "strict_core_edge_count",
+            "strict_core_nonlocal_edge_count",
+            "strict_core_local_edge_count",
+            "strict_core_particle_count",
+            "strict_core_particle_fraction",
             "stable_under_perturbation",
             "evidence_count",
             "evidence_size",
@@ -3233,6 +3674,13 @@ def write_diagnostic_outputs(
         handle.write("\t".join(columns) + "\n")
         for row in domain_rows:
             handle.write("\t".join(str(row.get(column, "")) for column in columns) + "\n")
+
+    size_floor = max(config.n_min, config.robust_min_size)
+    domain_size_frame_count_rows = lc_domain_size_counts.collect_domain_size_frame_counts_from_records(domain_rows)
+    domain_size_frame_count_table = lc_domain_size_counts.write_domain_size_frame_count_table(
+        domain_size_frame_count_rows,
+        diagnostics_dir / "domain_size_frame_counts.tsv",
+    )
 
     pearl_candidate_table = diagnostics_dir / "pearl_candidate_diagnostics.tsv"
     with pearl_candidate_table.open("w", encoding="utf-8") as handle:
@@ -3279,23 +3727,48 @@ def write_diagnostic_outputs(
         encoding="utf-8",
     )
 
-    sweep_table = diagnostics_dir / "edge_threshold_sweep.tsv"
-    strength_values = sorted({0.12, 0.20, 0.30, 0.40, 0.50, config.gb_off_strength, config.gb_on_strength})
-    p2_values = sorted({0.0, 0.3, 0.5, config.p2_cut, 0.85})
-    with sweep_table.open("w", encoding="utf-8") as handle:
-        handle.write("gb_strength_cut\tp2_cut\tedge_count\tnonlocal_edge_count\tlocal_edge_count\n")
-        for strength_cut in strength_values:
-            for p2_cut in p2_values:
-                selected = [
-                    row for row in edge_rows
-                    if float(row.get("attraction_strength", 0.0)) >= strength_cut
-                    and float(row.get("p2_score", -1.0)) >= p2_cut
-                ]
-                local_count = sum(1 for row in selected if int(row.get("is_local", 0)) == 1)
-                handle.write(
-                    f"{strength_cut:.6g}\t{p2_cut:.6g}\t{len(selected)}\t"
-                    f"{len(selected) - local_count}\t{local_count}\n"
-                )
+    accepted_edge_sweep_path: Optional[Path] = None
+    accepted_edge_plot_paths: List[str] = []
+    if config.accepted_edge_audit:
+        sweep_table = diagnostics_dir / "accepted_edge_threshold_sweep.tsv"
+        accepted_edge_sweep_path = sweep_table
+        if edge_rows:
+            accepted_edge_plot_paths = [
+                str(diagnostics_dir / "accepted_edge_gb_strength_hist.png"),
+                str(diagnostics_dir / "accepted_edge_gb_strength_vs_p2.png"),
+            ]
+        strength_values = sorted({0.12, 0.20, 0.30, 0.40, 0.50, config.gb_off_strength, config.gb_on_strength, config.gb_core_strength, config.gb_strict_core_strength})
+        p2_values = sorted({0.0, 0.3, 0.5, config.p2_cut, config.p2_core_cut, config.p2_strict_core_cut, 0.85})
+        with sweep_table.open("w", encoding="utf-8") as handle:
+            handle.write("gb_strength_cut\tp2_cut\taccepted_edge_count\tnonlocal_accepted_edge_count\tlocal_accepted_edge_count\tcore_edge_count\tcore_nonlocal_edge_count\tstrict_core_edge_count\tstrict_core_nonlocal_edge_count\n")
+            for strength_cut in strength_values:
+                for p2_cut in p2_values:
+                    selected = [
+                        row for row in edge_rows
+                        if float(row.get("attraction_strength", 0.0)) >= strength_cut
+                        and float(row.get("p2_score", -1.0)) >= p2_cut
+                    ]
+                    local_count = sum(1 for row in selected if int(row.get("is_local", 0)) == 1)
+                    core_selected = [row for row in selected if int(row.get("is_core_contact", 0)) == 1]
+                    core_local_count = sum(1 for row in core_selected if int(row.get("is_local", 0)) == 1)
+                    strict_core_selected = [row for row in selected if int(row.get("is_strict_core_contact", 0)) == 1]
+                    strict_core_local_count = sum(1 for row in strict_core_selected if int(row.get("is_local", 0)) == 1)
+                    handle.write(
+                        f"{strength_cut:.6g}\t{p2_cut:.6g}\t{len(selected)}\t"
+                        f"{len(selected) - local_count}\t{local_count}\t"
+                        f"{len(core_selected)}\t{len(core_selected) - core_local_count}\t"
+                        f"{len(strict_core_selected)}\t{len(strict_core_selected) - strict_core_local_count}\n"
+                    )
+    else:
+        legacy_sweep = diagnostics_dir / "edge_threshold_sweep.tsv"
+        if legacy_sweep.exists():
+            legacy_sweep.unlink()
+        (diagnostics_dir / "accepted_edge_audit_disabled.txt").write_text(
+            "Accepted-edge threshold sweeps and accepted-edge GB/P2 plots were not written. "
+            "Use --accepted-edge-audit if you explicitly need a post-run audit of already accepted edges. "
+            "Use lc_threshold_prior.py outputs for threshold selection.\n",
+            encoding="utf-8",
+        )
 
     robust_domains = [row for row in domain_rows if row.get("classification") == "robust"]
     summary = {
@@ -3304,6 +3777,10 @@ def write_diagnostic_outputs(
             "gb_require_pair_orientation": config.gb_require_pair_orientation,
             "gb_on_strength": config.gb_on_strength,
             "gb_off_strength": config.gb_off_strength,
+            "gb_core_strength": config.gb_core_strength,
+            "p2_core_cut": config.p2_core_cut,
+            "gb_strict_core_strength": config.gb_strict_core_strength,
+            "p2_strict_core_cut": config.p2_strict_core_cut,
             "u_on": config.u_on,
             "u_off": config.u_off,
             "p2_cut": config.p2_cut,
@@ -3320,6 +3797,12 @@ def write_diagnostic_outputs(
             "edge_count": len(edge_rows),
             "strong_edge_count": sum(1 for row in edge_rows if row.get("edge_type") == "strong"),
             "local_edge_count": sum(1 for row in edge_rows if int(row.get("is_local", 0)) == 1),
+            "core_contact_count": sum(1 for row in edge_rows if int(row.get("is_core_contact", 0)) == 1),
+            "core_nonlocal_contact_count": sum(1 for row in edge_rows if int(row.get("is_core_contact", 0)) == 1 and int(row.get("is_local", 0)) == 0),
+            "core_seed_edge_count": sum(1 for row in edge_rows if int(row.get("is_core_seed", 0)) == 1),
+            "strict_core_contact_count": sum(1 for row in edge_rows if int(row.get("is_strict_core_contact", 0)) == 1),
+            "strict_core_nonlocal_contact_count": sum(1 for row in edge_rows if int(row.get("is_strict_core_contact", 0)) == 1 and int(row.get("is_local", 0)) == 0),
+            "strict_core_seed_edge_count": sum(1 for row in edge_rows if int(row.get("is_strict_core_seed", 0)) == 1),
             "domain_count": len(domain_rows),
             "robust_domain_count": len(robust_domains),
             "robust_below_s2_threshold_count": sum(
@@ -3328,6 +3811,13 @@ def write_diagnostic_outputs(
             "pearl_candidate_pair_count": len(pearl_candidate_rows),
             "adjacency_accepted_pearl_candidate_pair_count": sum(1 for row in pearl_candidate_rows if bool(row.get("adjacency_accepted"))),
         },
+        "domain_size_per_frame_distribution": {
+            "frame_count_table": str(domain_size_frame_count_table),
+            "plot": str(diagnostics_dir / "domain_size_vs_domain_count.png"),
+            "n_points": len(domain_size_frame_count_rows),
+            "total_domains": int(sum(row.total_count for row in domain_size_frame_count_rows)),
+            "size_floor": int(size_floor),
+        },
         "edge_diagnostics_table": {
             "mode": edge_table_mode,
             "total_edge_rows": len(edge_rows),
@@ -3335,10 +3825,18 @@ def write_diagnostic_outputs(
             "sample_size": int(config.edge_diagnostics_sample_size),
             "path": str(edge_table) if edge_table_mode in {"full", "sample"} else None,
         },
+        "accepted_edge_audit": {
+            "enabled": bool(config.accepted_edge_audit),
+            "purpose": "post-run audit of already accepted edges only; not threshold selection",
+            "sweep_path": str(accepted_edge_sweep_path) if accepted_edge_sweep_path is not None else None,
+            "plot_paths": accepted_edge_plot_paths,
+        },
         "pearl_parameter_recommendation": pearl_recommendation,
         "notes": [
             "GB pair energy and S2 are computed quantities.",
             "Main threshold selection should come from lc_threshold_prior.py streaming full candidate-pair histograms, not from screened accepted-edge diagnostics.",
+            "gb_core_strength/p2_core_cut mark the core-shoulder contact tier for audit and OVITO visualization only; they do not change strong/gray edge construction, robust-domain classification, or pearl merging.",
+            "gb_strict_core_strength/p2_strict_core_cut mark the stricter strong-core contact tier for audit and OVITO visualization only.",
             "special_bonds/topology exclusions are not exact unless an explicit topology workflow is added.",
         ],
     }
@@ -3355,7 +3853,7 @@ def write_diagnostic_outputs(
         (diagnostics_dir / "plot_error.txt").write_text(str(exc), encoding="utf-8")
         return
 
-    if edge_rows:
+    if edge_rows and config.accepted_edge_audit:
         strengths = np.array([float(row.get("attraction_strength", 0.0)) for row in edge_rows], dtype=float)
         p2_values_array = np.array([float(row.get("p2_score", 0.0)) for row in edge_rows], dtype=float)
 
@@ -3363,25 +3861,38 @@ def write_diagnostic_outputs(
         ax.hist(strengths, bins=40, color="#2c7a5b", alpha=0.78)
         annotate_vline(ax, config.gb_off_strength, threshold_label("gb_off", config.gb_off_strength), color="#b7791f", lw=2)
         annotate_vline(ax, config.gb_on_strength, threshold_label("gb_on", config.gb_on_strength), color="#9b2c2c", ymax=0.82, lw=2)
+        annotate_vline(ax, config.gb_core_strength, threshold_label("gb_core", config.gb_core_strength), color="#d946ef", ymax=0.72, lw=2)
+        annotate_vline(ax, config.gb_strict_core_strength, threshold_label("gb_strict", config.gb_strict_core_strength), color="#7c3aed", ymax=0.62, lw=2)
         ax.set_xlabel("GB attraction strength = max(0, -U_GB / U_well)")
         ax.set_ylabel("edge count")
         ax.legend(frameon=False, loc="upper right")
         fig.tight_layout()
-        fig.savefig(diagnostics_dir / "gb_strength_hist.png")
+        strength_hist_path = diagnostics_dir / "accepted_edge_gb_strength_hist.png"
+        fig.savefig(strength_hist_path)
         plt.close(fig)
 
         fig, ax = plt.subplots(figsize=(6.4, 5.0), dpi=160)
         hb = ax.hexbin(strengths, p2_values_array, gridsize=70, bins="log", mincnt=1, cmap="viridis")
         annotate_vline(ax, config.gb_on_strength, threshold_label("gb_on", config.gb_on_strength), color="#9b2c2c", lw=1.5)
+        annotate_vline(ax, config.gb_core_strength, threshold_label("gb_core", config.gb_core_strength), color="#d946ef", lw=1.5)
+        annotate_vline(ax, config.gb_strict_core_strength, threshold_label("gb_strict", config.gb_strict_core_strength), color="#7c3aed", lw=1.5)
         annotate_hline(ax, config.p2_cut, threshold_label("p2_cut", config.p2_cut), color="#b7791f", lw=1.5)
+        annotate_hline(ax, config.p2_core_cut, threshold_label("p2_core", config.p2_core_cut), color="#22c55e", lw=1.5)
+        annotate_hline(ax, config.p2_strict_core_cut, threshold_label("p2_strict", config.p2_strict_core_cut), color="#16a34a", lw=1.2)
         ax.set_xlabel("GB attraction strength")
         ax.set_ylabel("pair P2")
         ax.set_title("Accepted LC edges under current gates")
         fig.colorbar(hb, ax=ax, label="log10(edge count)")
         ax.legend(frameon=False, loc="upper right")
         fig.tight_layout()
-        fig.savefig(diagnostics_dir / "gb_strength_vs_p2.png")
+        accepted_edge_p2_path = diagnostics_dir / "accepted_edge_gb_strength_vs_p2.png"
+        fig.savefig(accepted_edge_p2_path)
         plt.close(fig)
+    else:
+        for legacy_plot in ("gb_strength_hist.png", "gb_strength_vs_p2.png"):
+            path = diagnostics_dir / legacy_plot
+            if path.exists():
+                path.unlink()
 
     if domain_rows:
         sizes = np.array([float(row.get("size", 0.0)) for row in domain_rows], dtype=float)
@@ -3391,7 +3902,6 @@ def write_diagnostic_outputs(
         fig, ax = plt.subplots(figsize=(6.4, 5.0), dpi=160)
         ax.scatter(sizes, s2_values, s=28, alpha=0.78, c=colors)
         annotate_hline(ax, config.robust_min_s2, threshold_label("S2_min", config.robust_min_s2), color="#b7791f", lw=1.5)
-        size_floor = max(config.n_min, config.robust_min_size)
         annotate_vline(ax, float(size_floor), f"size_floor={size_floor}", color="#315f9f", lw=1.5)
         ax.set_xlabel("domain size")
         ax.set_ylabel("domain S2")
@@ -3399,6 +3909,12 @@ def write_diagnostic_outputs(
         fig.tight_layout()
         fig.savefig(diagnostics_dir / "domain_size_vs_s2.png")
         plt.close(fig)
+
+    lc_domain_size_counts.plot_domain_size_frame_counts(
+        domain_size_frame_count_rows,
+        diagnostics_dir / "domain_size_vs_domain_count.png",
+        size_floor=int(size_floor),
+    )
 
 
 def write_results(
@@ -3428,6 +3944,22 @@ def write_results(
             "n_clusters",
             "qualified_pairs",
             "qualified_pair_fraction",
+            "core_contact_count",
+            "core_nonlocal_contact_count",
+            "core_local_contact_count",
+            "core_contact_fraction",
+            "core_particle_fraction",
+            "core_seed_edge_count",
+            "mean_core_contact_degree",
+            "max_core_contact_degree",
+            "strict_core_contact_count",
+            "strict_core_nonlocal_contact_count",
+            "strict_core_local_contact_count",
+            "strict_core_contact_fraction",
+            "strict_core_particle_fraction",
+            "strict_core_seed_edge_count",
+            "mean_strict_core_contact_degree",
+            "max_strict_core_contact_degree",
             "energy_edge_count",
             "min_pair_energy",
             "mean_pair_energy",
@@ -3634,6 +4166,10 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--u-off", type=float, default=-0.12, help="Gray attractive edge threshold for Gay-Berne energy; must be less negative than --u-on.")
     parser.add_argument("--gb-on-strength", type=float, default=0.30, help="Strong edge threshold for relative Gay-Berne attraction strength -U/well_depth.")
     parser.add_argument("--gb-off-strength", type=float, default=0.12, help="Gray edge threshold for relative Gay-Berne attraction strength -U/well_depth.")
+    parser.add_argument("--gb-core-strength", type=float, default=0.70, help="Diagnostic core-shoulder contact threshold for relative Gay-Berne attraction strength. Does not change domain/pearl construction.")
+    parser.add_argument("--p2-core-cut", type=float, default=0.71, help="Diagnostic pair-P2 gate for core-shoulder contacts. Does not change domain/pearl construction.")
+    parser.add_argument("--gb-strict-core-strength", type=float, default=0.90, help="Diagnostic strict-core contact threshold for relative Gay-Berne attraction strength. Does not change domain/pearl construction.")
+    parser.add_argument("--p2-strict-core-cut", type=float, default=0.80, help="Diagnostic pair-P2 gate for strict-core contacts. Does not change domain/pearl construction.")
     parser.add_argument("--r-energy-cap", default="auto", help="Maximum center distance for Gay-Berne candidate pairs; 'auto' uses the GB cutoff from --gb-param-file.")
     parser.add_argument("--cluster-cut", default="auto", help="Visual cluster center-distance cutoff for OVITO labels; 'auto' uses min(r_cut, shape_factor * long diameter).")
     parser.add_argument("--cluster-cut-shape-factor", type=float, default=1.35, help="When shape columns exist, auto cluster_cut is capped at this factor times the mesogen long diameter.")
@@ -3677,8 +4213,9 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-frame-jsonl", dest="write_frame_jsonl", action="store_false", help="Disable full per-frame JSONL debug output.")
     parser.add_argument("--write-diagnostics", dest="write_diagnostics", action="store_true", default=True, help="Write threshold audit TSV/JSON/PNG diagnostics. Enabled by default.")
     parser.add_argument("--no-diagnostics", dest="write_diagnostics", action="store_false", help="Disable threshold diagnostic outputs.")
-    parser.add_argument("--edge-diagnostics-table", choices=["off", "sample", "full"], default="off", help="Write accepted-edge TSV diagnostics. Default off writes summary JSON and histogram plots only.")
+    parser.add_argument("--edge-diagnostics-table", choices=["off", "sample", "full"], default="off", help="Write accepted-edge TSV diagnostics. Default off writes summary JSON and aggregate accepted-edge counts only.")
     parser.add_argument("--edge-diagnostics-sample-size", type=int, default=200_000, help="Rows written when --edge-diagnostics-table sample is used.")
+    parser.add_argument("--accepted-edge-audit", action="store_true", help="Opt in to post-run accepted-edge threshold sweep and accepted-edge GB/P2 plots. These are not threshold-selection inputs.")
     parser.add_argument("--cluster-envelope-padding", type=float, default=0.4, help="Padding added to each visual cluster envelope radius.")
     parser.add_argument("--track-across-files", dest="track_across_files", action="store_true", default=True, help="Track domain persistence across sorted dump files. Enabled by default for one-frame dump sequences.")
     parser.add_argument("--no-track-across-files", dest="track_across_files", action="store_false", help="Process each dump independently; enables full file-level parallelism but disables persistence across one-frame files.")
@@ -3706,6 +4243,16 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--contact-mode gayberne requires --u-on < --u-off < 0")
     if args.contact_mode == "gayberne" and args.gb_threshold_mode == "relative" and not (1.0 >= args.gb_on_strength > args.gb_off_strength > 0.0):
         raise SystemExit("--contact-mode gayberne requires 1 >= --gb-on-strength > --gb-off-strength > 0")
+    if args.contact_mode == "gayberne" and args.gb_threshold_mode == "relative" and not (args.gb_core_strength > args.gb_on_strength):
+        raise SystemExit("--contact-mode gayberne requires --gb-core-strength > --gb-on-strength for diagnostic core-shoulder contacts")
+    if not -0.5 <= args.p2_core_cut <= 1.0:
+        raise SystemExit("--p2-core-cut must be in [-0.5, 1.0]")
+    if args.contact_mode == "gayberne" and args.gb_threshold_mode == "relative" and not (args.gb_strict_core_strength >= args.gb_core_strength):
+        raise SystemExit("--contact-mode gayberne requires --gb-strict-core-strength >= --gb-core-strength")
+    if not -0.5 <= args.p2_strict_core_cut <= 1.0:
+        raise SystemExit("--p2-strict-core-cut must be in [-0.5, 1.0]")
+    if args.p2_strict_core_cut < args.p2_core_cut:
+        raise SystemExit("--p2-strict-core-cut must be >= --p2-core-cut")
     if args.cluster_cut_shape_factor <= 0.0:
         raise SystemExit("--cluster-cut-shape-factor must be positive")
     if args.cluster_min_size < 2:
@@ -3797,6 +4344,10 @@ def main() -> None:
         u_off=float(args.u_off),
         gb_on_strength=float(args.gb_on_strength),
         gb_off_strength=float(args.gb_off_strength),
+        gb_core_strength=float(args.gb_core_strength),
+        p2_core_cut=float(args.p2_core_cut),
+        gb_strict_core_strength=float(args.gb_strict_core_strength),
+        p2_strict_core_cut=float(args.p2_strict_core_cut),
         r_energy_cap=r_energy_cap,
         cluster_cut=cluster_cut,
         cluster_cut_shape_factor=float(args.cluster_cut_shape_factor),
@@ -3834,6 +4385,7 @@ def main() -> None:
         write_diagnostics=bool(args.write_diagnostics),
         edge_diagnostics_table=str(args.edge_diagnostics_table),
         edge_diagnostics_sample_size=int(args.edge_diagnostics_sample_size),
+        accepted_edge_audit=bool(args.accepted_edge_audit),
         shared_r_cut=bool(args.shared_r_cut),
         track_across_files=bool(args.track_across_files),
         workers=int(args.workers),

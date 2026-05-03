@@ -61,13 +61,23 @@ workers = "auto"
 every = 1
 n_min = 3
 s_excl = 1
+# Core-tier visualization gates. These values are normally filled by
+# threshold_prior before analysis; fallbacks are used only without prior.
+p2_core_cut = 0.71
+gb_core_strength = 0.70
+p2_strict_core_cut = 0.80
+gb_strict_core_strength = 0.90
 edge_diagnostics_table = "off"
 edge_diagnostics_sample_size = 200000
+accepted_edge_audit = false
 write_frame_jsonl = false
 # edge_diagnostics_table:
-#   "off"    default; write summary JSON and plots only.
+#   "off"    default; write summary JSON and compact aggregate counts only.
 #   "sample" write a bounded edge_diagnostics.tsv sample.
 #   "full"   write every accepted edge; expensive for large dump folders.
+# accepted_edge_audit:
+#   false default; do not write accepted-edge threshold sweep/plots.
+#   true  writes accepted_edge_* post-run audit files for already accepted edges.
 
 # Optional. If these files exist at topology/local_pairs.tsv or
 # topology/exclude_pairs.tsv, lc_pearl_here.py uses them automatically.

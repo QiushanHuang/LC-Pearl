@@ -79,7 +79,7 @@ def get_int(row: List[str], col_index: Dict[str, int], name: str, default: int =
 
 def merged_columns(label_columns: List[str]) -> List[str]:
     columns = list(label_columns)
-    for name in ("vis_kind", "vis_edge_type", "source_atom_id"):
+    for name in ("vis_kind", "vis_edge_type", "vis_core_contact", "vis_strict_core_contact", "vis_contact_tier", "source_atom_id"):
         if name not in columns:
             columns.append(name)
     return columns
@@ -102,6 +102,9 @@ def make_marker_from_atom(
     radius: float,
     vis_kind: int,
     edge_type: int = 0,
+    core_contact: int = 0,
+    strict_core_contact: int = 0,
+    contact_tier: int = 0,
     source_atom_id: int = 0,
 ) -> List[str]:
     col_index = {name: idx for idx, name in enumerate(columns)}
@@ -117,6 +120,9 @@ def make_marker_from_atom(
     set_value(row, col_index, ("mass",), "1")
     set_value(row, col_index, ("vis_kind",), vis_kind)
     set_value(row, col_index, ("vis_edge_type",), edge_type)
+    set_value(row, col_index, ("vis_core_contact",), core_contact)
+    set_value(row, col_index, ("vis_strict_core_contact",), strict_core_contact)
+    set_value(row, col_index, ("vis_contact_tier",), contact_tier)
     set_value(row, col_index, ("source_atom_id",), source_atom_id)
     return row
 
@@ -142,6 +148,9 @@ def write_basic_vis_dump(
             for row in padded_rows:
                 set_value(row, col_index, ("vis_kind",), 0)
                 set_value(row, col_index, ("vis_edge_type",), 0)
+                set_value(row, col_index, ("vis_core_contact",), 0)
+                set_value(row, col_index, ("vis_strict_core_contact",), 0)
+                set_value(row, col_index, ("vis_contact_tier",), 0)
                 set_value(row, col_index, ("source_atom_id",), get_int(row, col_index, "id"))
                 output_rows.append(row)
 
@@ -170,6 +179,9 @@ def write_basic_vis_dump(
                     atom_i = int(float(edge.get("atom_i", "0")))
                     atom_j = int(float(edge.get("atom_j", "0")))
                     edge_type = int(float(edge.get("edge_type_code", "0")))
+                    core_contact = int(float(edge.get("is_core_contact", "0")))
+                    strict_core_contact = int(float(edge.get("is_strict_core_contact", "0")))
+                    contact_tier = int(float(edge.get("contact_tier_code", edge.get("edge_type_code", "0"))))
                 except ValueError:
                     continue
                 left = atom_by_id.get(atom_i)
@@ -197,6 +209,9 @@ def write_basic_vis_dump(
                             radius=contact_radius,
                             vis_kind=2,
                             edge_type=edge_type,
+                            core_contact=core_contact,
+                            strict_core_contact=strict_core_contact,
+                            contact_tier=contact_tier,
                             source_atom_id=atom_i,
                         )
                     )

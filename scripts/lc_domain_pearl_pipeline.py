@@ -21,8 +21,8 @@ ANALYSIS_SCRIPT = SCRIPT_DIR / "liquid_crystal_aggregation.py"
 RUN0_VALIDATOR_SCRIPT = SCRIPT_DIR / "lc_lammps_run0_validate.py"
 THRESHOLD_PRIOR_SCRIPT = SCRIPT_DIR / "lc_threshold_prior.py"
 PIPELINE_SCHEMA_VERSION = 1
-THRESHOLD_PRIOR_SCHEMA_VERSION = 5
-THRESHOLD_PRIOR_METHOD_NAME = "LC Domain-Pearl V2 2D lobe streaming threshold prior"
+THRESHOLD_PRIOR_SCHEMA_VERSION = 7
+THRESHOLD_PRIOR_METHOD_NAME = "LC-Pearl 2.1.0 core-tier streaming threshold prior"
 VALIDATED_STATUSES = {"validated"}
 STANDALONE_RUN0_METHODS = {
     "standalone_type1_only_lammps_run0_total_pair_energy",
@@ -70,6 +70,10 @@ def forwarded_positionals(args: List[str]) -> List[str]:
         "--u-off",
         "--gb-off-strength",
         "--gb-on-strength",
+        "--gb-core-strength",
+        "--gb-strict-core-strength",
+        "--p2-core-cut",
+        "--p2-strict-core-cut",
         "--cluster-cut",
         "--cluster-cut-shape-factor",
         "--cluster-min-size",
@@ -495,6 +499,69 @@ def attach_potential_validation_to_run_summary(output_root: Path, artifact_path:
     summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def copy_if_exists(source: Path, destination: Path) -> Optional[Path]:
+    if not source.exists() or not source.is_file():
+        return None
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    return destination
+
+
+def sync_threshold_prior_diagnostics(
+    output_root: Path,
+    prior_path: Path,
+    artifact: Optional[Dict[str, object]],
+) -> List[str]:
+    """Copy the threshold-prior evidence used by this run into diagnostics."""
+    if artifact is None:
+        try:
+            artifact = load_threshold_prior(prior_path)
+        except (OSError, json.JSONDecodeError):
+            artifact = {}
+    diagnostics_dir = output_root.resolve() / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    destination_dir = diagnostics_dir / "threshold_prior"
+    copied: List[str] = []
+
+    def record(source: Path, relative_destination: str, *, top_level_alias: Optional[str] = None) -> None:
+        destination = copy_if_exists(source, destination_dir / relative_destination)
+        if destination is not None:
+            copied.append(str(destination))
+        if top_level_alias:
+            alias = copy_if_exists(source, diagnostics_dir / top_level_alias)
+            if alias is not None:
+                copied.append(str(alias))
+
+    prior_dir = prior_path.resolve().parent
+    record(prior_path.resolve(), "global_thresholds.json")
+    record(prior_dir / "threshold_recommendations.json", "threshold_recommendations.json")
+    record(prior_dir / "streaming_manifest.json", "streaming_manifest.json")
+
+    outputs = artifact.get("outputs", {}) if isinstance(artifact, dict) else {}
+    plot_sources = {
+        "gb_strength_hist.png": Path(str(outputs.get("gb_strength_hist_plot", prior_dir / "gb_strength_hist.png"))),
+        "gb_strength_vs_p2_stream_hist.png": Path(str(outputs.get("stream_histogram_plot", prior_dir / "gb_strength_vs_p2_stream_hist.png"))),
+        "gb_strength_vs_p2_stream_dotgrid.png": Path(str(outputs.get("stream_dotgrid_plot", prior_dir / "gb_strength_vs_p2_stream_dotgrid.png"))),
+        "gb_strength_vs_p2_stream_hexbin.png": Path(str(outputs.get("stream_hexbin_plot", prior_dir / "gb_strength_vs_p2_stream_hexbin.png"))),
+    }
+    for name, source in plot_sources.items():
+        record(source, name, top_level_alias=name)
+
+    preview_dir = Path(str(outputs.get("lobe_split_preview_dir", prior_dir / "lobe_split_preview")))
+    for name in (
+        "gb_strength_vs_p2_stream_lobe_split_dotgrid.png",
+        "gb_strength_vs_p2_stream_lobe_split_comparison.png",
+        "gb_core_slice_hist.png",
+    ):
+        record(preview_dir / name, f"lobe_split_preview/{name}", top_level_alias=f"lobe_split_preview/{name}")
+        if name == "gb_core_slice_hist.png":
+            root_copy = copy_if_exists(preview_dir / name, diagnostics_dir / name)
+            if root_copy is not None:
+                copied.append(str(root_copy))
+
+    return copied
+
+
 def ensure_potential_validation(args: argparse.Namespace, forwarded: Sequence[str]) -> Optional[Path]:
     if args.potential_validation == "off":
         return None
@@ -623,6 +690,10 @@ def current_thresholds_from_forwarded(forwarded: Sequence[str]) -> Dict[str, obj
         "gb_off_strength": float(option_value(forwarded, "--gb-off-strength", 0.12)),
         "gb_on_strength": float(option_value(forwarded, "--gb-on-strength", 0.30)),
         "p2_cut": float(option_value(forwarded, "--p2-cut", 0.70)),
+        "gb_core_strength": float(option_value(forwarded, "--gb-core-strength", 0.70)),
+        "p2_core_cut": float(option_value(forwarded, "--p2-core-cut", 0.71)),
+        "gb_strict_core_strength": float(option_value(forwarded, "--gb-strict-core-strength", 0.90)),
+        "p2_strict_core_cut": float(option_value(forwarded, "--p2-strict-core-cut", 0.80)),
         "robust_min_s2": float(option_value(forwarded, "--robust-min-s2", 0.70)),
         "n_min": int(float(option_value(forwarded, "--n-min", 3))),
     }
@@ -752,6 +823,10 @@ def apply_threshold_prior_to_forwarded(
         ("gb_off_strength", "--gb-off-strength"),
         ("gb_on_strength", "--gb-on-strength"),
         ("p2_cut", "--p2-cut"),
+        ("gb_core_strength", "--gb-core-strength"),
+        ("p2_core_cut", "--p2-core-cut"),
+        ("gb_strict_core_strength", "--gb-strict-core-strength"),
+        ("p2_strict_core_cut", "--p2-strict-core-cut"),
     ):
         if key in recommended:
             updated = replace_or_append_option(updated, option, recommended[key])
@@ -804,6 +879,14 @@ def build_threshold_prior_command(
         str(thresholds["gb_on_strength"]),
         "--current-p2-cut",
         str(thresholds["p2_cut"]),
+        "--current-gb-core",
+        str(thresholds["gb_core_strength"]),
+        "--current-p2-core-cut",
+        str(thresholds["p2_core_cut"]),
+        "--current-gb-strict-core",
+        str(thresholds["gb_strict_core_strength"]),
+        "--current-p2-strict-core-cut",
+        str(thresholds["p2_strict_core_cut"]),
         "--current-s2-cut",
         str(thresholds["robust_min_s2"]),
         "--n-min",
@@ -951,6 +1034,11 @@ def main() -> None:
     run_command([sys.executable, str(ANALYSIS_SCRIPT), *forwarded])
     attach_potential_validation_to_run_summary(args.output_root, potential_artifact_path)
     if threshold_prior_path is not None:
+        threshold_prior_diagnostic_copies = sync_threshold_prior_diagnostics(
+            args.output_root,
+            threshold_prior_path,
+            threshold_prior_artifact,
+        )
         summary_path = args.output_root.resolve() / "run_summary.json"
         if summary_path.exists():
             try:
@@ -966,6 +1054,7 @@ def main() -> None:
                     "warnings": threshold_prior_artifact.get("warnings") if threshold_prior_artifact else None,
                     "sample_sizes": threshold_prior_artifact.get("sample_sizes") if threshold_prior_artifact else None,
                     "method_name": threshold_prior_artifact.get("method_name") if threshold_prior_artifact else None,
+                    "diagnostic_copies": threshold_prior_diagnostic_copies,
                 }
                 summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
             except json.JSONDecodeError:

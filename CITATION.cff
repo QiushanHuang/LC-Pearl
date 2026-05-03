@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 title: "LC-Pearl: a domain-pearl pipeline for liquid-crystal mesogen aggregation analysis"
-version: "1.0.0"
-date-released: "2026-05-02"
+version: "2.1.0"
+date-released: "2026-05-03"
 authors:
   - family-names: "Huang"
     given-names: "Qiushan"

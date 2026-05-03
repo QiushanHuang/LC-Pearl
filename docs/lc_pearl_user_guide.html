@@ -3,221 +3,152 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>LC-Pearl v1.0.0 使用手册</title>
+  <title>LC-Pearl v2.1.0 使用手册</title>
   <style>
-    :root {
-      --paper:#f7f1e5; --ink:#1f2b24; --muted:#536158; --green:#1f6b4b;
-      --blue:#275779; --amber:#9b6425; --red:#8c3d2c; --line:#d8cbb5;
-      --card:#fffaf0; --code:#17231d;
-    }
+    :root { --paper:#f8f0df; --ink:#1f2b24; --muted:#59655d; --green:#1f6b4b; --blue:#275779; --amber:#9b6425; --red:#8c3d2c; --line:#d8cbb5; --card:#fffaf0; --code:#17231d; }
     * { box-sizing:border-box; }
-    body {
-      margin:0; color:var(--ink);
-      background:
-        radial-gradient(circle at 10% 0%, rgba(31,107,75,.16), transparent 28rem),
-        linear-gradient(180deg, #fbf7ed 0%, #efe3cf 100%);
-      font-family: ui-serif, Georgia, "Times New Roman", "Songti SC", serif;
-      line-height:1.62;
-    }
+    body { margin:0; color:var(--ink); background:radial-gradient(circle at 8% 0%, rgba(31,107,75,.14), transparent 24rem), linear-gradient(180deg,#fbf7ed 0%,#efe3cf 100%); font-family:ui-serif, Georgia, "Times New Roman", "Songti SC", serif; line-height:1.64; }
     main { width:min(1180px, calc(100% - 36px)); margin:0 auto; padding:42px 0 72px; }
-    header {
-      border:1px solid var(--line); border-radius:28px; padding:34px;
-      background:linear-gradient(135deg, rgba(255,250,240,.92), rgba(238,228,207,.76));
-      box-shadow:0 18px 48px rgba(63,48,24,.12);
-    }
-    h1 { margin:0 0 10px; font-size:clamp(2.1rem, 4vw, 4.0rem); line-height:1.05; color:var(--green); }
-    h2 { margin:42px 0 14px; color:var(--green); font-size:1.65rem; border-bottom:2px solid var(--line); padding-bottom:8px; }
-    h3 { margin:26px 0 10px; color:var(--blue); font-size:1.18rem; }
+    header, section { border:1px solid var(--line); border-radius:24px; background:rgba(255,250,240,.84); padding:26px; margin:18px 0; box-shadow:0 14px 38px rgba(63,48,24,.08); }
+    h1 { margin:0 0 12px; font-size:clamp(2.1rem,4vw,4rem); line-height:1.05; color:var(--green); }
+    h2 { margin:0 0 14px; color:var(--green); font-size:1.55rem; }
+    h3 { color:var(--blue); margin:22px 0 8px; }
     p { margin:10px 0; }
     a { color:var(--blue); }
-    code, pre {
-      font-family:"SFMono-Regular", Consolas, "Liberation Mono", monospace;
-      background:var(--code); color:#f3ead5; border-radius:10px;
-    }
+    code, pre { font-family:"SFMono-Regular", Consolas, "Liberation Mono", monospace; background:var(--code); color:#f3ead5; border-radius:10px; }
     code { padding:.12rem .35rem; }
-    pre { padding:14px 16px; overflow:auto; border:1px solid rgba(255,255,255,.14); }
-    .lead { font-size:1.08rem; color:#314039; max-width:86ch; }
-    .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:16px; margin:18px 0; }
-    .card { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:18px; }
-    .tag { display:inline-block; padding:4px 10px; border-radius:999px; background:#e5d8bd; color:#3f351f; font-size:.86rem; margin:4px 6px 4px 0; }
-    table { width:100%; border-collapse:collapse; margin:16px 0; background:rgba(255,250,240,.82); }
+    pre { padding:14px 16px; overflow:auto; }
+    table { width:100%; border-collapse:collapse; margin:14px 0; background:#fffaf0; }
     th, td { border:1px solid var(--line); padding:9px 10px; vertical-align:top; }
-    th { background:#eadcc2; color:#26372e; text-align:left; }
+    th { background:#eadcc2; text-align:left; }
+    ul, ol { padding-left:1.25rem; }
+    li { margin:.35rem 0; }
+    .lead { max-width:92ch; font-size:1.08rem; }
+    .tag { display:inline-block; padding:4px 10px; border-radius:999px; background:#e5d8bd; color:#3f351f; font-size:.86rem; margin:4px 6px 4px 0; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:16px; }
+    .flow { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:14px 0; }
+    .box { padding:10px 12px; min-width:140px; text-align:center; border:1px solid var(--line); background:#fffaf0; border-radius:14px; }
+    .arrow { color:var(--amber); font-weight:bold; }
     .warn { border-left:5px solid var(--amber); padding:10px 14px; background:#fff4d9; border-radius:12px; }
     .ok { border-left:5px solid var(--green); padding:10px 14px; background:#eaf4ec; border-radius:12px; }
-    .flow { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:18px 0; }
-    .box { padding:10px 14px; border-radius:14px; border:1px solid var(--line); background:#fffaf0; min-width:150px; text-align:center; }
-    .arrow { color:var(--amber); font-weight:bold; }
-    ul { padding-left:1.2rem; }
-    li { margin:.35rem 0; }
   </style>
 </head>
 <body>
 <main>
   <header>
-    <span class="tag">LC-Pearl v1.0.0</span>
-    <span class="tag">LAMMPS dump analysis</span>
-    <span class="tag">OVITO visualization</span>
+    <span class="tag">LC-Pearl v2.1.0</span>
+    <span class="tag">LAMMPS dump</span>
+    <span class="tag">OVITO</span>
+    <span class="tag">Gay-Berne validation</span>
     <h1>LC-Pearl 使用手册</h1>
-    <p class="lead">
-      本手册说明如何使用 LC-Pearl v1.0.0 从 LAMMPS dump 中定量分析液晶 mesogen 聚集行为，
-      并将结果与 OVITO 可视化、拉伸力学量、温度或外力条件关联。LC-Pearl 的目标不是简单数
-      “距离 cluster”，而是将聚集行为分解为 mesogen contact、domain、pearl 三个层级。
-    </p>
+    <p class="lead">LC-Pearl 用于定量分析液晶 mesogen 在拉伸、降温或其他动力学过程中形成的局部束化、robust domain 和 pearl-necklace bead。v2.1.0 的正式流程是：先验证 Gay-Berne potential，再由全局 <code>GB strength × P2</code> 二维分布自动生成阈值先验，然后才运行 domain、pearl、力学和 OVITO 可视化分析。</p>
   </header>
 
-  <h2>1. 适用对象和基本假设</h2>
-  <div class="grid">
-    <div class="card">
-      <h3>粒子类型</h3>
-      <p>默认只把 <code>type 1</code> ellipsoid 作为 mesogen 聚集成员。<code>type 2</code> sphere 和 <code>type 3</code> anchor 不进入聚集成员，但可用于端点、链序号、拉伸轴和 topology 支持。</p>
-    </div>
-    <div class="card">
-      <h3>物理问题</h3>
-      <p>用于分析 Gay-Berne 吸引、链连接和外力拉伸竞争时产生的局部束化、珍珠状 bead、connector 和 force-extension 行为。</p>
-    </div>
-    <div class="card">
-      <h3>核心输出</h3>
-      <p>输出时间序列、OVITO label dump、contact segment、threshold prior 图、domain/pearl 诊断和力学相关量。</p>
-    </div>
-  </div>
-
-  <h2>2. 推荐工作流</h2>
-  <p>最稳定的使用方式是在需要分析的 dump 输出目录中直接运行 portable wrapper。</p>
-  <pre><code>cd /path/to/dump_output_folder
+  <section>
+    <h2>1. 快速开始</h2>
+    <p>进入包含 dump 文件的目录：</p>
+    <pre><code>cd /path/to/dump_output_folder
 python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py</code></pre>
-  <p>首次运行会创建 <code>lc_pearl_preflight/</code>。你需要把原始输入信息放入这个前置文件夹。</p>
-  <table>
-    <thead><tr><th>文件或目录</th><th>你需要放什么</th><th>LC-Pearl 用它做什么</th></tr></thead>
-    <tbody>
-      <tr><td><code>lc_pearl_preflight/lammps/*.in</code> 或 <code>*.lmp</code></td><td>原始 LAMMPS input，必须包含 <code>pair_style gayberne</code> 和 type 1-1 <code>pair_coeff</code></td><td>提取 Gay-Berne 参数，重算 E-E pair energy，生成 <code>gb_param_source.in</code></td></tr>
-      <tr><td><code>lc_pearl_preflight/lammps/lammps_executable.txt</code></td><td>LAMMPS 可执行文件绝对路径</td><td>用于 run 0 / microstate potential validation</td></tr>
-      <tr><td><code>lc_pearl_preflight/topology/*.data</code></td><td>可选 LAMMPS data 文件，包含 Atoms/Bonds</td><td>自动生成 <code>local_pairs.tsv</code> 和 <code>exclude_pairs.tsv</code>，提高链局域关系判断精度</td></tr>
-      <tr><td><code>lc_pearl_preflight/validation/verified_potential.json</code></td><td>通常无需手写</td><td>缓存已验证的 Python GB 重算参数；potential 不变时可复用</td></tr>
-      <tr><td><code>lc_pearl_preflight/thresholds/global_thresholds.json</code></td><td>通常无需手写</td><td>缓存全局 2D lobe threshold prior；相同体系可迁移复用</td></tr>
-    </tbody>
-  </table>
+    <p>首次运行会创建 <code>lc_pearl_preflight/</code>。把原始 LAMMPS input、LAMMPS 可执行文件路径和可选 topology data 放进去后，运行：</p>
+    <pre><code>python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py auto</code></pre>
+    <div class="flow">
+      <div class="box">dump folder</div><span class="arrow">→</span>
+      <div class="box">preflight</div><span class="arrow">→</span>
+      <div class="box">GB validation</div><span class="arrow">→</span>
+      <div class="box">2D threshold prior</div><span class="arrow">→</span>
+      <div class="box">domain / pearl</div><span class="arrow">→</span>
+      <div class="box">OVITO + diagnostics</div>
+    </div>
+  </section>
 
-  <h3>运行模式</h3>
-  <pre><code>python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py validate
-python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py run
-python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py auto</code></pre>
-  <p><code>auto</code> 是默认模式：先检查 potential cache，必要时验证；再检查 threshold prior，必要时重建；最后运行主分析。</p>
+  <section>
+    <h2>2. 前置文件夹需要什么</h2>
+    <table>
+      <thead><tr><th>路径</th><th>你放入什么</th><th>pipeline 用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>lc_pearl_preflight/lammps/*.in</code> 或 <code>*.lmp</code></td><td>原始 LAMMPS input，包含 <code>pair_style gayberne</code> 和 type 1-1 <code>pair_coeff</code></td><td>提取 GB 参数并生成 <code>gb_param_source.in</code></td></tr>
+        <tr><td><code>lc_pearl_preflight/lammps/lammps_executable.txt</code></td><td>一行 LAMMPS 可执行文件绝对路径</td><td>用于 <code>run 0</code> / microstate potential validation</td></tr>
+        <tr><td><code>lc_pearl_preflight/topology/*.data</code></td><td>可选 LAMMPS data 文件，含 Atoms/Bonds</td><td>生成 <code>local_pairs.tsv</code> 和 <code>exclude_pairs.tsv</code>，提高 local/nonlocal 判断精度</td></tr>
+        <tr><td><code>validation/verified_potential.json</code></td><td>通常自动生成</td><td>相同 potential 可复用的验证缓存</td></tr>
+        <tr><td><code>thresholds/global_thresholds.json</code></td><td>通常自动生成</td><td>相同体系可复用的阈值先验缓存</td></tr>
+      </tbody>
+    </table>
+  </section>
 
-  <div class="flow">
-    <div class="box">dump folder</div><span class="arrow">→</span>
-    <div class="box">preflight</div><span class="arrow">→</span>
-    <div class="box">GB validation</div><span class="arrow">→</span>
-    <div class="box">2D threshold prior</div><span class="arrow">→</span>
-    <div class="box">domain/pearl analysis</div><span class="arrow">→</span>
-    <div class="box">OVITO + TSV + diagnostics</div>
-  </div>
-
-  <h2>3. 配置文件工作流</h2>
-  <p>如果你希望固定参数并批量复用，编辑 <code>configs/quick_run.toml</code> 或前置文件夹中的 <code>lc_pearl_config.toml</code>。</p>
-  <pre><code>cd /Users/joshua/Desktop/MD/LC-Pearl
+  <section>
+    <h2>3. 配置文件工作流</h2>
+    <p>适合批量分析多个温度、力或链长目录。</p>
+    <pre><code>cd /Users/joshua/Desktop/MD/LC-Pearl
 /Users/joshua/Desktop/MD/venv/bin/python3 lc_pearl_cli.py print-run --config configs/quick_run.toml
 /Users/joshua/Desktop/MD/venv/bin/python3 lc_pearl_cli.py run --config configs/quick_run.toml</code></pre>
-  <p><code>print-run</code> 只打印命令，不实际运行。建议每次改配置后先看一次 print-run。</p>
+    <p><code>print-run</code> 只打印命令，不运行；建议每次改配置先执行它。</p>
+  </section>
 
-  <h2>4. 输出目录结构</h2>
-  <table>
-    <thead><tr><th>输出</th><th>用途</th><th>如何看</th></tr></thead>
-    <tbody>
-      <tr><td><code>aggregation_timeseries.tsv</code></td><td>主定量表，逐帧统计 cluster/domain/pearl/mechanics</td><td>用 Python、Excel、Origin 或 pandas 画时间序列和条件均值</td></tr>
-      <tr><td><code>per_file/*_aggregation.tsv</code></td><td>每个 dump 文件对应的局部时间序列</td><td>用于定位异常 frame 或分段分析</td></tr>
-      <tr><td><code>per_file/*_summary.json</code></td><td>compact 摘要</td><td>检查 r_cut、平均聚集程度、最后帧 compact 指标</td></tr>
-      <tr><td><code>per_file/*_lc_labels.dump</code></td><td>OVITO 粒子标签</td><td>按 <code>lc_cluster</code>、<code>lc_domain</code>、<code>lc_pearl</code> 上色</td></tr>
-      <tr><td><code>per_file/*_lc_contact_segments.vtk</code></td><td>contact edge 线段</td><td>在 OVITO 中作为单独 pipeline 加载</td></tr>
-      <tr><td><code>diagnostics/diagnostic_summary.json</code></td><td>当前实际使用阈值和诊断计数</td><td>确认主分析用的是哪组 <code>gb_on/gb_off/p2_cut</code></td></tr>
-      <tr><td><code>diagnostics/gb_strength_vs_p2.png</code></td><td>主分析接受的 edge 分布</td><td>不是阈值选择图，只用于检查最终 accepted edges</td></tr>
-      <tr><td><code>lc_pearl_preflight/thresholds/gb_strength_vs_p2_stream_hist.png</code></td><td>全量 candidate-pair 2D 分布</td><td>用于审查阈值先验是否符合肉眼 lobe 结构</td></tr>
-      <tr><td><code>lc_pearl_preflight/thresholds/gb_strength_vs_p2_stream_lobe_split_dotgrid.png</code></td><td>点阵式 2D lobe 切分图</td><td>最推荐用于组会展示阈值线位置</td></tr>
-    </tbody>
-  </table>
+  <section>
+    <h2>4. 主要输出</h2>
+    <table>
+      <thead><tr><th>输出</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>aggregation_timeseries.tsv</code></td><td>逐帧主表：domain、pearl、contact、cluster、mechanics。</td></tr>
+        <tr><td><code>per_file/*_lc_labels.dump</code></td><td>OVITO 粒子标签。</td></tr>
+        <tr><td><code>per_file/*_lc_contact_segments.vtk</code></td><td>OVITO contact 线段。</td></tr>
+        <tr><td><code>diagnostics/domain_diagnostics.tsv</code></td><td>每个 domain 的 size、S2、edge count、robust evidence。</td></tr>
+        <tr><td><code>diagnostics/domain_size_vs_s2.png</code></td><td>仿散点审查 domain size 和内部 S2。</td></tr>
+        <tr><td><code>diagnostics/domain_size_vs_domain_count.png</code></td><td>每帧内不同 domain size 的 domain 数量散点图；每个点对应一个 <code>(frame, size)</code> 分组。</td></tr>
+        <tr><td><code>diagnostics/domain_size_frame_counts.tsv</code></td><td><code>domain_size_vs_domain_count.png</code> 的原始分组数据。</td></tr>
+        <tr><td><code>diagnostics/diagnostic_summary.json</code></td><td>主分析实际使用的阈值、计数和 provenance。</td></tr>
+        <tr><td><code>lc_pearl_preflight/thresholds/global_thresholds.json</code></td><td>可迁移的全局阈值先验。</td></tr>
+      </tbody>
+    </table>
+  </section>
 
-  <h2>5. OVITO 可视化指南</h2>
-  <p>打开 <code>per_file/*_lc_labels.dump</code> 后，常用 Color Coding 字段如下。</p>
-  <table>
-    <thead><tr><th>字段</th><th>含义</th><th>建议用途</th></tr></thead>
-    <tbody>
-      <tr><td><code>lc_cluster</code></td><td>仅用于直观显示的中心距 visual cluster id</td><td>快速看空间团块，不作为最终 robust domain 定义</td></tr>
-      <tr><td><code>lc_cluster_size</code></td><td>visual cluster 中 mesogen 数量</td><td>看局部密集团块大小</td></tr>
-      <tr><td><code>lc_contact_degree</code></td><td>该 mesogen 的 accepted contact edge 数</td><td>找聚集核心和 connector</td></tr>
-      <tr><td><code>lc_min_pair_energy</code></td><td>该 mesogen 参与的最强吸引 pair energy</td><td>找强吸引核心</td></tr>
-      <tr><td><code>lc_mean_pair_energy</code></td><td>该 mesogen 参与 contact 的平均 pair energy</td><td>看局部吸引环境</td></tr>
-      <tr><td><code>lc_max_gb_strength</code></td><td>最大 normalized attraction strength</td><td>识别强 GB contact</td></tr>
-      <tr><td><code>lc_mean_gb_strength</code></td><td>平均 normalized attraction strength</td><td>区分孤立强边和整体强吸引区域</td></tr>
-      <tr><td><code>lc_domain</code></td><td>domain id</td><td>看局部 mesogen 束</td></tr>
-      <tr><td><code>lc_pearl</code></td><td>pearl id</td><td>看几个 robust domain 是否组成同一个 3D bead</td></tr>
-      <tr><td><code>lc_state</code></td><td>状态码，表示未归属、weak、robust、pearl-supported 等</td><td>快速过滤和上色</td></tr>
-    </tbody>
-  </table>
-  <p class="warn">如果 OVITO 不能同时加载多个 pipeline，先看 label dump 和 cluster envelopes；contact VTK 可以对代表帧单独打开。</p>
+  <section>
+    <h2>5. OVITO 上色逻辑</h2>
+    <table>
+      <thead><tr><th>字段</th><th>含义</th><th>建议用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>lc_cluster</code></td><td>中心距 visual cluster id</td><td>快速看空间团块，不作为最终 robust domain 定义。</td></tr>
+        <tr><td><code>lc_aggregation_tier</code></td><td><code>0</code> 无接触，<code>1</code> weak/transition，<code>2</code> aggregation，<code>3</code> core shoulder，<code>4</code> strict core</td><td>推荐第一优先上色字段。</td></tr>
+        <tr><td><code>lc_contact_degree</code></td><td>mesogen 参与的 accepted contact 数</td><td>找接触 hub 和 connector。</td></tr>
+        <tr><td><code>lc_min_pair_energy</code></td><td>最强吸引 pair energy</td><td>定位强吸引接触。</td></tr>
+        <tr><td><code>lc_max_gb_strength</code></td><td>最大归一化 GB 吸引强度</td><td>定位强 GB contact。</td></tr>
+        <tr><td><code>lc_core_contact_degree</code></td><td><code>gb_strength ≥ gb_core</code> 且 <code>P2 &gt; 0.71</code> 的接触数</td><td>看 core-shoulder 区域。</td></tr>
+        <tr><td><code>lc_strict_core_contact_degree</code></td><td><code>gb_strength ≥ gb_strict_core</code> 且 <code>P2 &gt; 0.80</code> 的接触数</td><td>看最强核心区域。</td></tr>
+        <tr><td><code>lc_domain</code></td><td>weak 或 robust domain id</td><td>看局部 mesogen 束。</td></tr>
+        <tr><td><code>lc_pearl</code></td><td>3D pearl id</td><td>看 bead-like pearl membership。</td></tr>
+        <tr><td><code>lc_state</code></td><td><code>0</code> none，<code>1</code> weak domain，<code>2</code> robust domain</td><td>紧凑显示 domain 状态。</td></tr>
+      </tbody>
+    </table>
+    <p class="warn">如果 OVITO 不能同时加载多个 pipeline，先打开 label dump；contact segments VTK 可对代表帧单独打开。</p>
+  </section>
 
-  <h2>6. 如何分析结果</h2>
-  <h3>聚集程度随时间</h3>
-  <p>从 <code>aggregation_timeseries.tsv</code> 画 <code>robust_domain_count</code>、<code>weak_domain_count</code>、<code>pearl_count</code>、<code>largest_pearl_fraction</code>、<code>local_edge_fraction</code>、<code>nonlocal_edge_fraction</code>。这些量能反映拉伸过程中“大 cluster 被拉成多个 pearl”的过程。</p>
+  <section>
+    <h2>6. 如何判断结果可靠</h2>
+    <ol>
+      <li>检查 <code>lc_pearl_preflight/validation/verified_potential.json</code> 是否匹配当前 LAMMPS potential。</li>
+      <li>检查 <code>lc_pearl_preflight/thresholds/global_thresholds.json</code> 是否存在，并由代表性数据生成。</li>
+      <li>查看 <code>gb_strength_vs_p2_stream_hexbin.png</code> 与 <code>lobe_split_preview/gb_strength_vs_p2_stream_lobe_split_dotgrid.png</code>。</li>
+      <li>检查 <code>diagnostics/diagnostic_summary.json</code>，确认主分析应用了同一组阈值。</li>
+      <li>在 OVITO 用 <code>lc_aggregation_tier</code>、<code>lc_domain</code>、<code>lc_pearl</code> 核对代表帧。</li>
+      <li>看 <code>domain_size_vs_s2.png</code> 和 <code>domain_size_vs_domain_count.png</code> 是否与物理直觉一致。</li>
+    </ol>
+  </section>
 
-  <h3>外力或温度对比</h3>
-  <p>对每个模拟条件分别运行 LC-Pearl，然后比较稳态区间的均值和置信区间。推荐同时报告 <code>L_parallel</code>、<code>Rg_parallel</code>、<code>Rg_perp</code>、<code>S2_force</code>，避免只用 cluster 数解释力学。</p>
+  <section>
+    <h2>7. 不同目的如何使用</h2>
+    <div class="grid">
+      <div class="card"><h3>单条轨迹</h3><p>看 <code>N_domain(t)</code>、<code>N_pearl(t)</code>、largest pearl fraction、local/nonlocal edge fraction 和 OVITO 代表帧。</p></div>
+      <div class="card"><h3>外力序列</h3><p>复用相同 potential cache 和代表性 threshold prior；比较稳态 <code>L_parallel</code>、<code>pearl_count</code>、<code>largest_pearl_fraction</code>。</p></div>
+      <div class="card"><h3>降温轨迹</h3><p>用覆盖高温到低温的 dump 建全局 prior；分析 aggregation onset 和 core-contact 增长。</p></div>
+      <div class="card"><h3>debug</h3><p>对异常 frame 临时开启 <code>edge_diagnostics_table="sample"</code> 或 <code>write_frame_jsonl=true</code>。</p></div>
+    </div>
+  </section>
 
-  <h3>pearl-necklace 语言</h3>
-  <p><code>pearl_count</code> 描述沿链/空间上出现多少 bead-like 团块；<code>domains per pearl</code> 描述一个 bead 内部是否由多个 domain 挤在一起；connector length 描述 bead 之间被拉开的程度。</p>
-
-  <h2>7. 参数修改建议</h2>
-  <table>
-    <thead><tr><th>目标</th><th>优先调哪个参数</th><th>判断依据</th></tr></thead>
-    <tbody>
-      <tr><td>阈值太宽，远距离也连起来</td><td>先检查 <code>global_thresholds.json</code> 和 lobe split 图；必要时提高 <code>gb_on_strength</code></td><td>OVITO contact segments 是否跨过明显空隙</td></tr>
-      <tr><td>相邻液晶弱聚集被忽略</td><td>检查 <code>s_excl</code>、<code>lc_state</code> 和 weak domain 输出</td><td>相邻束应保留为 weak local domain</td></tr>
-      <tr><td>多个 domain 是否应合成一个 pearl</td><td><code>pearl_gap_cut</code>、<code>pearl_min_cross_contacts</code>、<code>pearl_max_aspect_ratio</code></td><td>合并后是否仍是 compact bead，而不是细长 connector</td></tr>
-      <tr><td>运行太慢</td><td><code>threshold_prior.global_frame_stride</code>、<code>workers</code>、关闭 debug JSONL</td><td>先用 stride 10 试算，再对最终代表体系全量算 prior</td></tr>
-      <tr><td>输出文件太大</td><td><code>edge_diagnostics_table = "off"</code>、<code>write_frame_jsonl = false</code></td><td>默认已关闭，只有 debug 时开启</td></tr>
-    </tbody>
-  </table>
-
-  <h2>8. Debug 顺序</h2>
-  <ol>
-    <li>检查 <code>lc_pearl_preflight/validation/verified_potential.json</code> 是否存在且匹配当前 LAMMPS input。</li>
-    <li>检查 <code>lc_pearl_preflight/thresholds/global_thresholds.json</code> 的 schema 和 recommended thresholds。</li>
-    <li>打开 <code>gb_strength_vs_p2_stream_lobe_split_dotgrid.png</code>，确认阈值线是否合理切分 2D lobe。</li>
-    <li>检查 <code>diagnostics/diagnostic_summary.json</code>，确认主分析实际使用了同一组阈值。</li>
-    <li>在 OVITO 中检查代表帧的 <code>lc_domain</code>、<code>lc_pearl</code> 和 contact segments。</li>
-    <li>若某帧异常，再临时打开 <code>edge_diagnostics_table = "sample"</code> 或 <code>write_frame_jsonl = true</code>。</li>
-  </ol>
-
-  <h2>9. 什么时候需要重新验证或重建先验</h2>
-  <table>
-    <thead><tr><th>变化</th><th>是否需要重新 GB validation</th><th>是否需要重建 threshold prior</th></tr></thead>
-    <tbody>
-      <tr><td>LAMMPS <code>pair_style</code>、<code>pair_coeff</code>、单位或 shape 定义改变</td><td>需要</td><td>需要</td></tr>
-      <tr><td>只改变外力大小，但 potential 不变</td><td>通常不需要</td><td>同一体系可复用，但建议用代表温度/状态全量 prior</td></tr>
-      <tr><td>温度范围明显改变</td><td>不一定</td><td>建议用覆盖高温到低温的 dump 重建全局 prior</td></tr>
-      <tr><td>链长、拓扑、special_bonds 改变</td><td>potential 不变时不一定</td><td>建议重建，因为 local/nonlocal 结构不同</td></tr>
-    </tbody>
-  </table>
-
-  <h2>10. 引用和报告建议</h2>
-  <p>组会或论文中建议用以下结构报告：</p>
-  <ul>
-    <li>体系与输入：粒子类型、GB 参数、拉伸/温度条件、dump 采样。</li>
-    <li>阈值来源：展示全量 <code>GB strength x P2</code> lobe split 图和 recommended thresholds。</li>
-    <li>聚集层级：domain 解决局部束，pearl 解决 3D bead，mechanics 解决力学响应。</li>
-    <li>结果面板：<code>N_domain(t)</code>、<code>N_pearl(t)</code>、largest pearl fraction、local/nonlocal edge fraction、<code>L_parallel</code>、<code>Rg_parallel/Rg_perp</code>。</li>
-    <li>可视化：OVITO label + contact segments 的代表帧。</li>
-  </ul>
-
-  <h2>11. 贡献者与开源声明</h2>
-  <p><strong>贡献者：</strong>Qiushan Huang / 黄秋山。</p>
-  <p><strong>开源许可证：</strong>LC-Pearl v1.0.0 以 MIT License 开源发布。使用、修改、复制或再分发本软件时应保留版权与许可证声明。</p>
-  <p><strong>学术使用：</strong>若 LC-Pearl 用于论文、组会报告或项目报告，建议引用仓库中的 <code>CITATION.cff</code>，并在方法部分说明 GB potential 验证状态、threshold prior、domain 定义和 pearl 定义。</p>
-
-  <div class="ok">
-    <strong>LC-Pearl v1.0.0 的默认原则：</strong>
-    threshold prior 在主分析前由全量 2D candidate-pair histogram 生成；主分析不依赖 post-run candidate-pair TSV；
-    edge table 和 full frame JSONL 默认关闭，避免把大规模 dump 分析变成不可控的多 GB 文本输出。
-  </div>
+  <section>
+    <h2>8. 更完整的 Markdown 手册</h2>
+    <p>完整学术手册见仓库根目录 <code>MANUAL.md</code>，以及 <code>docs/LC_Pearl_v2.1_Academic_User_Manual.md</code>。算法细节见 <code>docs/lc_pearl_algorithm_reference.html</code>。</p>
+  </section>
 </main>
 </body>
 </html>

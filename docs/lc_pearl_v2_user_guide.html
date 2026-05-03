@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>LC-Pearl V2 使用指南</title>
+  <title>LC-Pearl V2.1.0 使用指南</title>
   <style>
     :root { --paper:#f7f1e5; --ink:#1f2b24; --muted:#526158; --green:#1f6b4b; --blue:#275779; --amber:#9b6425; --red:#8c3d2c; --line:#d8cbb5; --card:#fffaf0; --code:#17231d; }
     * { box-sizing:border-box; }
@@ -35,8 +35,8 @@
 <body>
 <main>
   <header>
-    <h1>LC-Pearl V2 使用指南</h1>
-    <p class="lead">这份指南说明你现在怎么跑 V2、前置文件夹里放什么、阈值先验如何单独运行、如何看输出、如何在 OVITO 里检查 <code>lc_cluster/lc_domain/lc_pearl/lc_state</code>，以及怎样判断结果是否可靠。</p>
+    <h1>LC-Pearl V2.1.0 使用指南</h1>
+    <p class="lead">这份指南说明你现在怎么跑 V2.1.0、前置文件夹里放什么、阈值先验如何单独运行、如何看输出、如何在 OVITO 里检查 <code>lc_cluster/lc_domain/lc_pearl/lc_state</code>、<code>lc_core_*</code> 和 <code>lc_strict_core_*</code>，以及怎样判断结果是否可靠。</p>
   </header>
   <section>
     <h2>1. 推荐工作流</h2>
@@ -58,7 +58,7 @@ python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py</code></pre>
       <tr><td>LAMMPS executable 路径</td><td><code>lc_pearl_preflight/lammps/lammps_executable.txt</code></td><td>用于 run 0 验证；内容示例：<code>/Users/joshua/Desktop/Qiushan_Code/lammmps_git/lammps/build-asphere-mpi/lmp</code>。</td></tr>
       <tr><td>代表帧 dump</td><td>当前 dump 目录，不放进 preflight</td><td>默认自动选择第一个匹配 <code>*.dump</code> 的文件；也可在 <code>[validation].representative_dump</code> 指定。</td></tr>
       <tr><td>原始 LAMMPS data 文件，可选但推荐</td><td><code>lc_pearl_preflight/topology/*.data</code> 或 <code>*.dat</code></td><td>自动生成 <code>topology/local_pairs.tsv</code> 和 <code>topology/exclude_pairs.tsv</code>。你不需要手写这两个 TSV。</td></tr>
-      <tr><td>已验证阈值先验，可选</td><td><code>lc_pearl_preflight/thresholds/global_thresholds.json</code></td><td>如果 fingerprint 匹配、GB potential 已验证、confidence gate 通过，V2 才会应用它；适合从高温到降温全采样得到一套项目级阈值后复制到多个相似模拟。注意“相似模拟”仍需你从温度、密度、链长、构型分布上做科研判断，代码只能检查 potential 和若干输入 fingerprint。</td></tr>
+      <tr><td>已验证阈值先验，可选</td><td><code>lc_pearl_preflight/thresholds/global_thresholds.json</code></td><td>如果 schema/method fingerprint 匹配且 GB potential 已验证，V2 会在主分析前应用它；适合从高温到降温全采样得到一套项目级阈值后复制到多个相似模拟。注意“相似模拟”仍需你从温度、密度、链长、构型分布上做科研判断，代码只能检查 potential、schema 和若干输入 fingerprint。</td></tr>
     </table>
     <div class="note"><b>旧命令映射：</b>旧的 <code>--gb-param-file "../in.single_chain_constant_force_aligned_box-F0.38-tail_v0_no_thermal-xuyu-zu.lmp"</code> 现在等价于把这个 <code>.lmp</code> 文件放进 <code>lc_pearl_preflight/lammps/</code>。旧的 <code>--dump-file traj.force_clamp_aligned.6055000.dump</code> 现在等价于在当前 dump 目录保留这个 dump，并在 config 中可选指定。</div>
 
@@ -72,7 +72,7 @@ python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py</code></pre>
       <tr><td>只跑分析</td><td><code>python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py run</code></td><td>使用已有验证缓存和阈值先验；缺关键文件会报错。</td></tr>
       <tr><td>打印命令不执行</td><td><code>python3 /Users/joshua/Desktop/MD/LC-Pearl/lc_pearl_here.py print-auto</code></td><td>检查路径和参数。</td></tr>
     </table>
-    <div class="note"><b>并行规则：</b><code>workers="auto"</code> 不是固定 10 核，而是 <code>min(可用 CPU 核数, 输入 dump 文件数, 默认上限 10)</code>。可用环境变量调整：主分析/GB audit 用 <code>LC_PEARL_MAX_WORKERS</code>，threshold prior 用 <code>LC_PEARL_MAX_AUTO_WORKERS</code>，precision calibration 用 <code>LC_PEARL_MAX_AUTO_CALIBRATION_WORKERS</code>。如果主分析启用跨文件 domain tracking，代码会为了持续性标签顺序处理多个 dump。</div>
+    <div class="note"><b>并行规则：</b><code>workers="auto"</code> 不是固定 10 核，而是 <code>min(可用 CPU 核数, 输入 dump 文件数, 默认上限 10)</code>。可用环境变量调整：主分析用 <code>LC_PEARL_MAX_WORKERS</code>，threshold prior 用 <code>LC_PEARL_MAX_AUTO_WORKERS</code>。如果主分析启用跨文件 domain tracking，代码会为了持续性标签顺序处理多个 dump。</div>
 
     <h2>4. 阈值先验如何单独运行</h2>
     <p>如果你想用一个覆盖高温到降温的 dump 文件夹做全采样，生成一套项目级阈值，再复制到其它力/温度模拟，直接运行：</p>
@@ -88,11 +88,14 @@ python3 /Users/joshua/Desktop/MD/LC-Pearl/scripts/lc_threshold_prior.py . \
     <p><code>--global-frame-stride 1</code> 表示全量候选帧；改成 <code>10</code> 就是在整个输入文件夹排序后的全局 frame 序列里每 10 帧取 1 帧，改成 <code>100</code> 就是每 100 帧取 1 帧。对于每个 dump 文件只有一帧的目录，不要用 <code>--every 10</code> 来控制全局抽样，因为 <code>--every</code> 只作用于单个 dump 文件内部。</p>
     <table>
       <tr><th>输出</th><th>怎么看</th></tr>
-      <tr><td><code>global_thresholds.json</code></td><td>最终可复用先验。看 <code>recommended.gb_off_strength</code>、<code>recommended.gb_on_strength</code>、<code>recommended.p2_cut</code>、<code>calibration_status</code>、<code>apply_allowed</code>。</td></tr>
+      <tr><td><code>global_thresholds.json</code></td><td>最终可复用先验。看 <code>recommended.gb_off_strength</code>、<code>recommended.gb_on_strength</code>、<code>recommended.p2_cut</code>、<code>recommended.gb_core_strength</code>、<code>recommended.p2_core_cut</code>、<code>recommended.gb_strict_core_strength</code>、<code>recommended.p2_strict_core_cut</code>、<code>calibration_status</code>、<code>apply_allowed</code>。</td></tr>
       <tr><td><code>streaming_manifest.json</code></td><td>说明读了多少文件、多少 raw frames、多少候选 frames、实际 selected frames、worker 数。</td></tr>
       <tr><td><code>selected_frame_manifest.tsv</code></td><td>列出 streaming prior 实际使用的每一个 frame，包括文件名、timestep、全局 frame index、stride、offset、frame sampling weight。</td></tr>
       <tr><td><code>stream_hist_2d_gb_p2.tsv</code></td><td>全局 2D 统计表，不是所有 pair 明细，因此不会生成几十 GB 数据库。</td></tr>
-      <tr><td><code>gb_strength_vs_p2_stream_hist.png</code></td><td>最重要的图。图上有 <code>gb_off</code>、<code>gb_on</code>、<code>p2_cut</code> 数值线。</td></tr>
+      <tr><td><code>gb_strength_vs_p2_stream_hist.png</code></td><td>全量 2D 热图。图上有 <code>gb_off</code>、<code>gb_on</code>、<code>p2_cut</code>、<code>gb_core</code>、<code>p2_core</code>、<code>gb_strict</code>、<code>p2_strict</code> 数值线。</td></tr>
+      <tr><td><code>gb_strength_vs_p2_stream_dotgrid.png</code></td><td>同一全量 2D 统计的 bin-center 方格点阵图，用来逐格看 streaming histogram 的非零 bin。</td></tr>
+      <tr><td><code>gb_strength_vs_p2_stream_hexbin.png</code></td><td>真正的 hexbin 风格图，更接近旧版 <code>gb_strength_vs_p2_hexbin_recommended.png</code>，适合看稀疏 lobe 边界和阈值线。</td></tr>
+      <tr><td><code>lobe_split_preview/gb_core_slice_hist.png</code></td><td>同时看 <code>P2 &gt; 0.71</code> 的 core shoulder 切片和 <code>P2 &gt; 0.80</code> 的 strict core 切片，解释 <code>gb_core</code> 与 <code>gb_strict_core</code> 的位置。</td></tr>
       <tr><td><code>audit_pair_examples.tsv</code></td><td>少量代表 pair 明细，用来人工抽查，而不是完整数据库。</td></tr>
     </table>
     <div class="ok"><b>可迁移使用：</b>如果同一 potential、同一 mesogen type、同一 topology 排除规则、相近 dump schema 不变，可以把整个 <code>lc_pearl_preflight/thresholds/</code> 复制到其它 dump 目录复用。V2 会检查 GB 参数 hash、mesogen type、axis、local/exclude pair hash、<code>s_excl</code> 和 <code>r_energy_cap</code>；不匹配会自动重建或报错。</div>
@@ -102,7 +105,7 @@ python3 /Users/joshua/Desktop/MD/LC-Pearl/scripts/lc_threshold_prior.py . \
     <table>
       <tr><th>文件/目录</th><th>用途</th><th>先看什么</th></tr>
       <tr><td><code>lc_domain_pearl_v2_output/run_summary.json</code></td><td>复现记录。</td><td>看 <code>potential_validation</code>、<code>threshold_prior</code>、输入文件数、输出路径。</td></tr>
-      <tr><td><code>aggregation_timeseries.tsv</code></td><td>主定量结果。</td><td><code>N_domain</code>、<code>N_pearl</code>、<code>largest_domain_fraction</code>、<code>largest_pearl_fraction</code>、<code>L_parallel</code>、<code>Rg_parallel/perp</code>。</td></tr>
+      <tr><td><code>aggregation_timeseries.tsv</code></td><td>主定量结果。</td><td><code>N_domain</code>、<code>N_pearl</code>、<code>largest_domain_fraction</code>、<code>largest_pearl_fraction</code>、<code>core_contact_count</code>、<code>core_particle_fraction</code>、<code>L_parallel</code>、<code>Rg_parallel/perp</code>。</td></tr>
       <tr><td><code>per_file/*_lc_labels.dump</code></td><td>OVITO 主可视化。</td><td>用 <code>lc_state</code>、<code>lc_domain</code>、<code>lc_pearl</code>、<code>lc_cluster</code> 上色。</td></tr>
       <tr><td><code>diagnostics/domain_diagnostics.tsv</code></td><td>domain 级审查。</td><td>看每个 domain 的 size、S2、robust/weak、nonlocal 支持。</td></tr>
       <tr><td><code>diagnostics/pearl_candidate_diagnostics.tsv</code></td><td>pearl 合并审查。</td><td>看两个 domains 是否因为 gap、cross contacts、boundary support、aspect ratio 被接受或拒绝。</td></tr>
@@ -115,14 +118,22 @@ python3 /Users/joshua/Desktop/MD/LC-Pearl/scripts/lc_threshold_prior.py . \
       <tr><th>字段</th><th>怎么用</th><th>算法含义</th></tr>
       <tr><td><code>lc_cluster</code></td><td>先用它看“肉眼空间聚集在哪里”。</td><td>视觉辅助 cluster，方便直观看团块，不是最终 robust domain 定义。</td></tr>
       <tr><td><code>lc_cluster_size</code></td><td>看每个视觉 cluster 有多大。</td><td>同一个 <code>lc_cluster</code> 内 mesogen 数。</td></tr>
+      <tr><td><code>lc_aggregation_tier</code></td><td>最推荐的快速四色/五色上色字段。</td><td><code>0</code> 无 accepted contact，<code>1</code> weak/transition support，<code>2</code> strong aggregation，<code>3</code> core shoulder，<code>4</code> strict core。</td></tr>
       <tr><td><code>lc_contact_degree</code></td><td>看单个 mesogen 有多少通过阈值的接触边。</td><td>连接度高通常位于聚集体内部；边界粒子连接度低。</td></tr>
       <tr><td><code>lc_min_pair_energy</code></td><td>看每个 mesogen 最强吸引 pair。</td><td>越负表示吸引越强。</td></tr>
       <tr><td><code>lc_mean_pair_energy</code></td><td>看平均吸引环境。</td><td>比最小能量更平滑，但会受弱边影响。</td></tr>
       <tr><td><code>lc_max_gb_strength</code></td><td>看归一化最强吸引。</td><td>高值说明至少有一个强吸引支持。</td></tr>
       <tr><td><code>lc_mean_gb_strength</code></td><td>看平均归一化吸引。</td><td>用于判断一个粒子整体吸引环境是否稳定。</td></tr>
+      <tr><td><code>lc_core_contact_degree</code></td><td>看每个 mesogen 有多少 core-shoulder contacts。</td><td>满足 <code>gb_strength ≥ gb_core_strength</code> 且 <code>P2 &gt; 0.71</code> 的核心肩部接触数；它比 strict core 宽，用于看强接触 lobe 的主体边界。</td></tr>
+      <tr><td><code>lc_core_nonlocal_degree</code></td><td>看 core-shoulder 接触中有多少来自非相邻 mesogen。</td><td>用于区分相邻链段强接触和真正非局域核心支持。</td></tr>
+      <tr><td><code>lc_is_core_particle</code></td><td>快速上色 core-shoulder 粒子。</td><td><code>1</code> 表示该 mesogen 至少有一条 core-shoulder contact。</td></tr>
+      <tr><td><code>lc_max_core_gb_strength</code> / <code>lc_max_core_p2</code></td><td>看 core-shoulder 接触的最强能量和最高取向。</td><td>用于判断 core contact 是否只是刚过线，还是强吸引且高度平行。</td></tr>
+      <tr><td><code>lc_strict_core_contact_degree</code></td><td>看每个 mesogen 有多少 strict-core contacts。</td><td>满足 <code>gb_strength ≥ gb_strict_core_strength</code> 且 <code>P2 &gt; 0.80</code> 的更强核心接触数。</td></tr>
+      <tr><td><code>lc_strict_core_nonlocal_degree</code></td><td>看 strict core 中的非相邻支持。</td><td>如果该值高，说明不是只靠相邻链段形成的局部强接触。</td></tr>
+      <tr><td><code>lc_is_strict_core_particle</code></td><td>快速上色最强核心粒子。</td><td><code>1</code> 表示该 mesogen 至少有一条 strict-core contact。</td></tr>
       <tr><td><code>lc_domain</code></td><td>主看局部束。</td><td>同一编号表示同一帧同一个 domain。编号不保证跨帧连续。</td></tr>
       <tr><td><code>lc_pearl</code></td><td>主看空间珠子。</td><td>同一编号表示同一帧同一个 3D pearl；一个 pearl 可含多个 domains。</td></tr>
-      <tr><td><code>lc_state</code></td><td>快速区分 weak/robust。</td><td><code>0</code> 非 domain，<code>1</code> weak local domain，<code>2</code> robust domain。</td></tr>
+      <tr><td><code>lc_state</code></td><td>快速区分 weak/robust。</td><td><code>0</code> 非 domain，<code>1</code> weak local domain，<code>2</code> robust domain。它不包含 pearl-supported 第四态。</td></tr>
     </table>
     <div class="note"><b>没有 OVITO Pro 的加载建议：</b>先只打开 <code>*_lc_labels.dump</code> 看粒子标签。<code>*_lc_contact_segments.vtk</code> 是接触线段，OVITO Pro 可以 Add to scene 叠加；没有 Pro 时可以先忽略它，或者单独打开 VTK 看边是否过宽。</div>
 
