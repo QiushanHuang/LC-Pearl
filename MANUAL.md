@@ -2,10 +2,13 @@
 
 LC-Pearl is a reproducible pipeline for quantifying liquid-crystal mesogen aggregation in LAMMPS dump trajectories. It was built for single-chain and chain-like liquid-crystal simulations where Gay-Berne attraction, local orientational order, chain connectivity, temperature, and external stretching compete to form pearl-necklace-like morphologies.
 
-This manual is the canonical Markdown reference for the v2.1.0 release. The browser-ready versions are also included:
+This manual is the canonical Markdown reference for the v2.1.0 release. The focused Markdown manuals are:
 
-- `docs/lc_pearl_user_guide.html`
-- `docs/lc_pearl_algorithm_reference.html`
+- `docs/lc_pearl_algorithm_details.md`
+- `docs/lc_pearl_user_guide.md`
+- `docs/lc_pearl_operation_manual.md`
+
+Browser-ready HTML copies are retained for convenience, but the Markdown documents are the canonical release documentation.
 
 ## 1. Scope And Scientific Model
 
@@ -36,6 +39,18 @@ LAMMPS dump files
 ```
 
 The key design rule is that threshold selection happens before the main analysis. LC-Pearl does not first run the full domain/pearl analysis using fixed default thresholds and then retroactively recommend new thresholds. The main analysis receives the recommended prior values before contact graph construction.
+
+The core V2 algorithm is the 2D `GB strength x P2` split followed by a multi-tier contact partition:
+
+| Tier | Meaning | Rule |
+|---:|---|---|
+| 0 | no accepted contact | below gray/support gate |
+| 1 | weak or transition support | `gb_strength >= gb_off_strength` and `P2 >= p2_cut`, but not strong |
+| 2 | aggregation/strong contact | `gb_strength >= gb_on_strength` and `P2 >= p2_cut` |
+| 3 | core shoulder | `gb_strength >= gb_core_strength` and `P2 > 0.71` |
+| 4 | strict core | `gb_strength >= gb_strict_core_strength` and `P2 > 0.80` |
+
+This tier model is also exposed in OVITO as `lc_aggregation_tier`. The field is particle-level and equals the maximum tier among incident contacts for each mesogen. It is the recommended first color-coding field for visual review.
 
 ## 3. Installation
 
@@ -419,4 +434,3 @@ Use `CITATION.cff` for software citation. In publications or group reports, also
 - robust-domain evidence settings;
 - pearl merge settings;
 - whether topology data were used.
-
