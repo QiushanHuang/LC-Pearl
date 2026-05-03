@@ -7,7 +7,7 @@
 
 ## English
 
-LC-Pearl is a research-oriented Python pipeline for quantitatively characterizing aggregation behavior and pearl-necklace morphology in LAMMPS liquid-crystal mesogen trajectories. It combines Gay-Berne attraction, pair alignment, chain-locality evidence, temporal persistence, 3D bead geometry, OVITO visualization labels, and mechanics time series to convert visually ambiguous cluster configurations into analysis-ready mesogen contacts, weak/robust domains, compact 3D pearls, OVITO labels, and time series for mechanics-correlation analysis.
+LC-Pearl is a research-oriented Python pipeline for quantitatively characterizing aggregation behavior and pearl-necklace morphology in LAMMPS liquid-crystal mesogen trajectories. The workflow is designed for single-chain and chain-like liquid-crystal simulations where Gay-Berne attraction, local orientational order, chain connectivity, temperature, and external stretching forces interact to form pearl-necklace-like morphologies. It combines pair attraction, pair alignment, chain-locality evidence, temporal persistence, 3D bead geometry, OVITO visualization labels, and mechanics time series to convert visually ambiguous cluster configurations into analysis-ready mesogen contacts, weak/robust domains, compact 3D pearls, OVITO labels, and time series for mechanics-correlation analysis.
 
 The v2.1.0 release defines a three-level physical hierarchy plus two diagnostic core-contact tiers:
 
@@ -386,7 +386,7 @@ This repository is prepared as `LC-Pearl v2.1.0`. Previous source snapshots are 
 
 ## 中文
 
-LC-Pearl 是一个面向科研分析的 Python pipeline，用于定量表征 LAMMPS 液晶 mesogen 轨迹中的聚集行为和 pearl-necklace 形貌指标。它把 Gay-Berne 吸引、pair 取向、链局域性证据、时间持续性、3D 珠状几何、OVITO 可视化 label 和力学时间序列结合起来，在肉眼 cluster 判定模糊的构型中，将这些结构转化为易分析的 mesogen contact、weak/robust domain、紧凑 3D pearl、OVITO label 和可用于力学关联分析的时间序列。
+LC-Pearl 是一个面向科研分析的 Python pipeline，用于定量表征 LAMMPS 液晶 mesogen 轨迹中的聚集行为和 pearl-necklace 形貌指标。该流程专为单链及链状液晶模拟而设计，在这些模拟中，Gay-Berne 吸引力、局部取向序、链连接性、温度以及外部拉伸力相互作用，共同形成珍珠项链状的形态。它把 pair 吸引、pair 取向、链局域性证据、时间持续性、3D 珠状几何、OVITO 可视化 label 和力学时间序列结合起来，在肉眼 cluster 判定模糊的构型中，将这些结构转化为易分析的 mesogen contact、weak/robust domain、紧凑 3D pearl、OVITO label 和可用于力学关联分析的时间序列。
 
 v2.1.0 发行版定义了三个物理层级，并增加两个诊断性 core-contact 层：
 
